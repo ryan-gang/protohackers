@@ -30,7 +30,7 @@ class PriceAnalyzer:
             (self.datastore["timestamp"] >= start_timestamp)
             & (self.datastore["timestamp"] <= end_timestamp)
         ]["price"].mean()
-        logging.debug(f"Mean : {mean_price}")
+        logging.info(f"Mean : {mean_price}")
         if pd.isna(mean_price):
             return 0
         else:

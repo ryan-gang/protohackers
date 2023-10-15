@@ -1,16 +1,20 @@
 import logging
 import socket
+import struct
 import sys
 import threading
 import warnings
 
-from helpers import PriceAnalyzer, handle_request
+from helpers import PriceAnalyzer
 
 warnings.filterwarnings("ignore", category=FutureWarning)
 logging.basicConfig(
-    format="%(asctime)s | %(levelname)s | %(name)s |  [%(filename)s:%(lineno)d] %(message)s",
+    format=(
+        "%(asctime)s | %(levelname)s | %(name)s |  [%(filename)s:%(lineno)d] | %(threadName)-10s |"
+        " %(message)s"
+    ),
     datefmt="%Y-%m-%d %H:%M:%S",
-    level="DEBUG",
+    level="INFO",
     stream=sys.stdout,
 )
 
@@ -39,16 +43,32 @@ def handler(conn: socket.socket, addr: socket.AddressFamily):
                 if len(request) % 9 == 0:
                     break
 
-            logging.debug(f"Request : {request}")
-            response = handle_request(request, analyzer)
-            logging.debug(f"Response : {response}")
-            conn.send(response)
-            logging.info(f"Sent {len(response)} bytes to {addr}")
-
-            if not slice.strip():
+            if not slice.strip() and not request:
                 # Client disconnected
                 logging.debug(f"Client disconnected : {addr}")
                 break
+
+            in_format, out_format = ">cii", ">i"
+
+            for start in range(0, len(request), 9):
+                part = request[start : start + 9]
+                mode, arg_1, arg_2 = struct.unpack(in_format, part)
+
+                if mode.decode() == "I":
+                    seconds, price = arg_1, arg_2
+                    analyzer.append_row(seconds, price)
+                elif mode.decode() == "Q":
+                    start_time, end_time = arg_1, arg_2
+                    mean_price = analyzer.get_mean(start_time, end_time)
+                    response = struct.pack(out_format, mean_price)
+                    # logging.debug(f"Request : {request}")
+                    logging.info(f"Response : {response}")
+                    conn.send(response)
+                    logging.info(f"Sent {len(response)} bytes to {addr}")
+                else:
+                    logging.debug(f"Unknown Mode passed : {mode}")
+                    conn.send(b"")
+                    logging.info(f"Sent {0} bytes to {addr}")
 
 
 def main():
