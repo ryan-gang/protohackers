@@ -1,9 +1,9 @@
-import json
 import logging
 import socket
 import sys
 import threading
-from helpers import valid, generate_response, is_prime
+
+from helpers import handle_request
 
 logging.basicConfig(
     format="%(asctime)s | %(levelname)s | %(name)s |  [%(filename)s:%(lineno)d] %(message)s",
@@ -12,43 +12,48 @@ logging.basicConfig(
     stream=sys.stdout,
 )
 
+IP, PORT = "10.138.0.2", 9090
 
-def handle_request(conn: socket.socket, addr: socket.AddressFamily):
-    # This func runs in every new thread, parsing the request, creating a response
-    # Sending it out, closing connection and closing thread.
+
+def handler(conn: socket.socket, addr: socket.AddressFamily):
+    # Handler serves every connection, until it's closed.
     size = 1024
     with conn:
         logging.info(f"Connected by : {addr}")
-        try:
-            while True:
-                request = conn.recv(size)
-                logging.debug(request)
-                if not request.strip():
-                    logging.debug("Client disconnected.")
-                    break
-                request = json.loads(request.decode())
-                if valid(request):
-                    prime = is_prime(request["number"])
-                    response = generate_response(prime)
-                else:
-                    response = generate_response(None)
-
-                logging.debug(response)
-                conn.send(response)
-                logging.info(f"Sent {len(response)} bytes to {addr}")
-        except Exception:
-            return
+        while True:
+            request = bytearray()
+            # If request size > size, we get incomplete requests
+            # So, keep on receiving requests and append them
+            # to a bytes array until the full request is complete
+            # Request completion is confirmed by checking if the last char is \n.
+            while ((slice := conn.recv(size)) and slice.decode()[-1] != "\n"):
+                # As a result of the condition, the last valid slice won't be
+                # processed here
+                # logging.debug(slice)
+                request.extend(slice)
+            if not slice.strip():
+                # Client disconnected
+                logging.debug(f"Client disconnected : {addr}")
+                break
+            # Process the final slice where last char is \n.
+            # As a result `request` is always filled with the entire request.
+            # Even if a single line is passed, while loop wont run but this will.
+            request.extend(slice)
+            logging.debug(f"Request : {request}")
+            response = handle_request(request)
+            logging.debug(f"Response : {response}")
+            conn.send(response)
+            logging.info(f"Sent {len(response)} bytes to {addr}")
 
 
 def main():
-    IP, PORT = "10.138.0.2", 9090
     server_socket = socket.create_server((IP, PORT), reuse_port=True)
-    logging.info(f"Started Server @ {IP}")
+    logging.info(f"Started Server @ {IP}:{PORT}")
     while True:
         conn, addr = server_socket.accept()
         conn.settimeout(10)  # Set timeout for connection to 10 seconds.
         # Spin out a new thread to process this request, return control back to main thread.
-        threading.Thread(target=handle_request, args=(conn, addr)).start()
+        threading.Thread(target=handler, args=(conn, addr)).start()
 
 
 if __name__ == "__main__":
