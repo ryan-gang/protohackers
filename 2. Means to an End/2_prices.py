@@ -54,14 +54,15 @@ def handler(conn: socket.socket, addr: socket.AddressFamily):
                 part = request[start : start + 9]
                 mode, arg_1, arg_2 = struct.unpack(in_format, part)
 
-                if mode.decode() == "I":
+                # Might not be utf-8 decoding will fail, hence compare bytes.
+                if mode == b"I":
                     seconds, price = arg_1, arg_2
                     analyzer.append_row(seconds, price)
-                elif mode.decode() == "Q":
+                elif mode == b"Q":
                     start_time, end_time = arg_1, arg_2
                     mean_price = analyzer.get_mean(start_time, end_time)
                     response = struct.pack(out_format, mean_price)
-                    # logging.debug(f"Request : {request}")
+                    logging.debug(f"Request : {request}")
                     logging.info(f"Response : {response}")
                     conn.send(response)
                     logging.info(f"Sent {len(response)} bytes to {addr}")

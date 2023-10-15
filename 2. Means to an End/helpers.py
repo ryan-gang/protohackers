@@ -1,57 +1,56 @@
-"""
-Ref :
-https://docs.python.org/3.7/library/struct.html#format-characters
-"""
-
-
 import datetime
-import struct
 import logging
+
 import pandas as pd
 
 
 class PriceAnalyzer:
     def __init__(self) -> None:
         self.datastore = pd.DataFrame(columns=["timestamp", "price"])
+        self.__initialize__()
+
+    def __initialize__(self) -> None:
+        self.processed_all_rows = True
+        # Each append only adds data to internal lists. We need to add all the
+        # data from these lists to our datastore before computing the mean, this
+        # flag denotes if its safe to compute mean at this point of time.
+        # ie all lists data have been added to datastore.
+        self.timestamps = []
+        self.prices = []
 
     def append_row(self, seconds: int, price: int) -> None:
+        """
+        Simply appends the data to a list, to be processed in batch later.
+        """
         timestamp = datetime.datetime.utcfromtimestamp(seconds)
-        row = {"timestamp": timestamp, "price": price}
-        logging.debug(f"Append row : {row}")
-        df = pd.DataFrame([row])
-        self.datastore = pd.concat([self.datastore, df])
+        logging.debug(f"Append row : {timestamp}, {price}")
+
+        self.timestamps.append(timestamp)
+        self.prices.append(price)
+        self.processed_all_rows = False
 
     def get_mean(self, start_time: int, end_time: int) -> int:
+        """
+        Process all the data stores in the lists, in a single batch mode.
+        Compute and return mean.
+        """
         start_timestamp = datetime.datetime.utcfromtimestamp(start_time)
         end_timestamp = datetime.datetime.utcfromtimestamp(end_time)
-
         logging.debug(f"Get mean : {start_timestamp} to {end_timestamp}")
+
+        if not self.processed_all_rows:
+            df = pd.DataFrame({"timestamp": self.timestamps, "price": self.prices})
+            logging.info(f"Adding {len(df)} rows to datastore.")
+            self.datastore = pd.concat([self.datastore, df])
+            self.__initialize__()
+
         mean_price = self.datastore[
             (self.datastore["timestamp"] >= start_timestamp)
             & (self.datastore["timestamp"] <= end_timestamp)
         ]["price"].mean()
-        logging.info(f"Mean : {mean_price}")
         if pd.isna(mean_price):
-            return 0
+            out = 0
         else:
-            return int(mean_price)
-
-
-def handle_request(data: bytes, analyzer: PriceAnalyzer):
-    in_format = ">cii"
-    out_format = ">i"
-
-    mean_price = 0
-
-    for start in range(0, len(data), 9):
-        end = start + 9
-        part = data[start:end]
-        mode, arg_1, arg_2 = struct.unpack(in_format, part)
-
-        if mode.decode() == "I":
-            seconds, price = arg_1, arg_2
-            analyzer.append_row(seconds, price)
-        elif mode.decode() == "Q":
-            start_time, end_time = arg_1, arg_2
-            mean_price = analyzer.get_mean(start_time, end_time)
-    return struct.pack(out_format, mean_price)
+            out = int(mean_price)
+        logging.info(f"Mean : {out}")
+        return out
