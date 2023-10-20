@@ -23,23 +23,44 @@ def broadcast_room_details(client: str) -> None:
     conn = CLIENTS[client]
     names = list(CLIENTS.keys())
     participants = ", ".join(list(filter(lambda x: x != client, names)))
-    message = f"* The room contains: {participants}\n".encode()
-    conn.send(message)
-    logging.info(f"Response : {message}")
-    logging.info(f"Sent {len(message)} bytes to {client}")
+    message = f"* The room contains: {participants}\n"
+    send_and_log(conn, message, client)
 
 
-def broadcast_to_all_except(text: str, excluded_client: str, chat_mode=False) -> None:
+def broadcast_to_all_except(text: str, excluded_client: Optional[str], chat_mode=False) -> None:
     for name in CLIENTS:
         if name != excluded_client:
             conn = CLIENTS[name]
             if chat_mode:
-                response = f"[{excluded_client}] {text}\n".encode()
+                response = f"[{excluded_client}] {text}\n"
             else:
-                response = text.encode()
-            conn.send(response)
-            logging.info(f"Response : {response}")
-            logging.info(f"Sent {len(response)} bytes to {name}")
+                response = text
+            send_and_log(conn, response, name)
+
+
+def process_new_client(name: str, conn: socket.socket):
+    CLIENTS[name] = conn
+    client_name = name
+    joining_message = f"* {name} has entered the room\n"
+    broadcast_to_all_except(joining_message, client_name)
+
+    # if len(CLIENTS.keys()) > 1:
+    broadcast_room_details(client_name)
+
+
+def process_exiting_client(name: Optional[str], conn: socket.socket, addr):
+    logging.debug(f"Client disconnected : {addr}")
+    if name in CLIENTS:
+        del CLIENTS[name]
+    conn.close()
+    exiting_message = f"* {name} has left the room\n"
+    broadcast_to_all_except(exiting_message, name)
+
+
+def send_and_log(conn: socket.socket, response: str, client_name: str):
+    conn.send(response.encode())
+    logging.info(f"Response : {response}")
+    logging.info(f"Sent {len(response)} bytes to {client_name}")
 
 
 def handler(conn: socket.socket, addr: socket.AddressFamily):
@@ -50,26 +71,22 @@ def handler(conn: socket.socket, addr: socket.AddressFamily):
     logging.info(f"Connected by : {addr}")
     while True:
         if not client_name:
-            conn.send("Welcome to budgetchat! What shall I call you?\n".encode())
+            response = "Welcome to budgetchat! What shall I call you?\n"
+            send_and_log(conn, response, "new_client")
         message = conn.recv(size)
         logging.debug(message)
-        # conn.send(message)
         if not message.strip():
             # Client disconnected
-            logging.debug(f"Client disconnected : {addr}")
-            conn.close()
+            process_exiting_client(client_name, conn, addr)
             break
 
         if not client_name:
             name = message.decode().strip()
             if valid_name(name):
-                CLIENTS[name] = conn
+                process_new_client(name, conn)
                 client_name = name
-                joining_message = f"* {name} has entered the room\n"
-                broadcast_room_details(client_name)
-                broadcast_to_all_except(joining_message, client_name)
             else:
-                conn.close()
+                process_exiting_client(client_name, conn, addr)
         else:
             broadcast_to_all_except(message.decode(), client_name, chat_mode=True)
         logging.debug(f"Request : {message}")
