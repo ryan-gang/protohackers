@@ -2,9 +2,11 @@ import logging
 import socket
 import sys
 import threading
-from helpers import recv_data, send_data, open_upstream_conn, rewrite_address
+import time
 
+from helpers import open_upstream_conn, recv_data, rewrite_address, send_data
 
+IP, PORT = "10.138.0.2", 9090
 logging.basicConfig(
     format=(
         "%(asctime)s | %(levelname)s | %(name)s |  [%(filename)s:%(lineno)d] | %(threadName)-10s |"
@@ -12,10 +14,8 @@ logging.basicConfig(
     ),
     datefmt="%Y-%m-%d %H:%M:%S",
     level="DEBUG",
-    stream=sys.stdout,
+    handlers=[logging.FileHandler("app.log"), logging.StreamHandler(sys.stdout)],
 )
-
-IP, PORT = "10.138.0.2", 9090
 
 
 def handler(
@@ -34,6 +34,7 @@ def handler(
             return
         data = rewrite_address(data)
         send_data(down_conn, data)
+        time.sleep(1)
 
 
 def main():
@@ -41,7 +42,6 @@ def main():
     logging.info(f"Started MITM Server @ {IP}:{PORT}")
     while True:
         conn, addr = server_socket.accept()
-        conn.settimeout(60)  # Set timeout for connection to 60 seconds.
         upstream, upstream_addr = open_upstream_conn()
         threading.Thread(target=handler, args=(upstream, upstream_addr, conn, addr)).start()
         threading.Thread(target=handler, args=(conn, addr, upstream, upstream_addr)).start()
