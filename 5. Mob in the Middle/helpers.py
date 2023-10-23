@@ -13,27 +13,6 @@ logging.basicConfig(
     handlers=[logging.FileHandler("app.log"), logging.StreamHandler(sys.stdout)],
 )
 
-
-def get_logger():
-    logger = logging.getLogger()
-    logger.setLevel(logging.DEBUG)
-    stdout_handler = logging.StreamHandler(sys.stdout)
-    file_handler = logging.FileHandler("app.log")
-    fmt = (
-        "%(asctime)s | %(levelname)s | %(name)s |  [%(filename)s:%(lineno)d] | %(threadName)-10s |"
-        " %(message)s"
-    )
-    datefmt = "%Y-%m-%d %H:%M:%S"
-    formatter = logging.Formatter(fmt, datefmt)
-    file_handler.setFormatter(formatter)
-    stdout_handler.setFormatter(formatter)
-
-    logger.addHandler(stdout_handler)
-    logger.addHandler(file_handler)
-
-    return logger
-
-
 UPSTREAM_IP, UPSTREAM_PORT = "chat.protohackers.com", 16963
 
 
@@ -43,16 +22,15 @@ def recv_data(conn: socket.socket):
         message = conn.recv(size)
         request += message.decode()
         if not message:
-            logging.info("Client disconnected.")
-            return request
+            raise ConnectionResetError("Client Disconnected.")
         if request.endswith("\n"):
-            logging.debug(f"Request : {request}")
+            logging.debug(f"Request : {request.strip()}")
             return request
 
 
 def send_data(conn: socket.socket, response: str):
     try:
-        logging.debug(f"Response : {response}")
+        logging.debug(f"Response : {response.strip()}")
         conn.send(response.encode())
         # logging.info(f"Sent {len(response)} bytes.")
     except Exception as E:
@@ -70,17 +48,10 @@ def open_upstream_conn() -> tuple[socket.socket, str]:
 
 def rewrite_address(data: str) -> str:
     ADDRESS = "7YWHMfk9JZe0LM0g1ZauHuiSxhI"
-    pattern1 = r"^(7[A-Za-z0-9]{25,34}) "
-    pattern2 = r" (7[A-Za-z0-9]{25,34})$"
-    pattern3 = r"(7[A-Za-z0-9]{25,34}) "
-    pattern4 = r"^(7[A-Za-z0-9]{25,34})$"
+    pattern = r"(?=(?: |^)(7[A-Za-z0-9]{25,34})(?: |$))"
 
-    all_matches: set[str] = set()
-    for pattern in [pattern1, pattern2, pattern3, pattern4]:
-        matches = re.findall(pattern, data)
-        for match in matches:
-            all_matches.add(match)
-
-    for match in all_matches:
-        data = data.replace(match, ADDRESS)
+    matches = re.findall(pattern, data)
+    for match in matches:
+        if match:
+            data = data.replace(match, ADDRESS)
     return data
