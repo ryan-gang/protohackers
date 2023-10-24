@@ -163,9 +163,39 @@ class Serializer(object):
     def _serialize_uint32(self, str_bytes: int) -> bytes:
         return self._serialize_uint(str_bytes, self.u32)
 
-    def _serialize_error_data(self, msg: str) -> bytes:
+    def serialize_error_data(self, msg: str) -> bytes:
         CODE_NAME = "ERROR"
         CODE = self.codes[CODE_NAME]
         code = self._serialize_uint8(CODE)
         data = self._serialize_lp_str(msg)
         return code + data
+
+    def serialize_ticket_data(
+        self,
+        plate: str,
+        road: int,
+        mile1: int,
+        timestamp1: int,
+        mile2: int,
+        timestamp2: int,
+        speed: int,
+    ) -> bytes:
+        CODE_NAME = "TICKET"
+        CODE = self.codes[CODE_NAME]
+        data = b""
+        data += self._serialize_uint8(CODE)
+        data += self._serialize_lp_str(plate)
+        data += self._serialize_uint16(road)
+        data += self._serialize_uint16(mile1)
+        data += self._serialize_uint32(timestamp1)
+        data += self._serialize_uint16(mile2)
+        data += self._serialize_uint32(timestamp2)
+        data += self._serialize_uint16(speed)
+
+        return data
+
+    def serialize_heartbeat_data(self) -> bytes:
+        CODE_NAME = "HEARTBEAT"
+        CODE = self.codes[CODE_NAME]
+        data = self._serialize_uint8(CODE)
+        return data
