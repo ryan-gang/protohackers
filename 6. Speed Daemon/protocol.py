@@ -1,5 +1,18 @@
+import logging
+import socket
 import struct
+import sys
 from typing import Callable
+
+logging.basicConfig(
+    format=(
+        "%(asctime)s | %(levelname)s | %(name)s |  [%(filename)s:%(lineno)d] | %(threadName)-10s |"
+        " %(message)s"
+    ),
+    datefmt="%Y-%m-%d %H:%M:%S",
+    level="DEBUG",
+    handlers=[logging.FileHandler("app.log"), logging.StreamHandler(sys.stdout)],
+)
 
 
 class Parser(object):
@@ -199,3 +212,58 @@ class Serializer(object):
         CODE = self.codes[CODE_NAME]
         data = self._serialize_uint8(CODE)
         return data
+
+
+class SocketHandler(object):
+    def __init__(self):
+        self.parser = Parser()
+
+    def send_data(self, conn: socket.socket, response: str):
+        try:
+            logging.debug(f"Response : {response.strip()}")
+            conn.send(response.encode())
+            # logging.info(f"Sent {len(response)} bytes.")
+        except Exception as E:
+            logging.error(E)
+
+    def _read(self, conn: socket.socket, bits: int) -> bytes:
+        _bytes = bits // 8
+        data = conn.recv(_bytes)
+        return data
+
+    def _read_uint8(self, conn: socket.socket, size: int = 1) -> bytes:
+        return self._read(conn, 8 * size)
+
+    def _read_uint16(self, conn: socket.socket, size: int = 1) -> bytes:
+        return self._read(conn, 16 * size)
+
+    def _read_uint32(self, conn: socket.socket, size: int = 1) -> bytes:
+        return self._read(conn, 32 * size)
+
+    def _read_uint_arr(self, conn: socket.socket) -> bytes:
+        l = self._read_uint8(conn)
+        length = self.parser._parse_uint8(l)[0]
+        return l + self._read_uint16(conn, size=length)
+
+    def _read_str(self, conn: socket.socket) -> bytes:
+        l = self._read_uint8(conn)
+        length = self.parser._parse_uint8(l)[0]
+        return l + self._read_uint8(conn, size=length)
+
+    def read_data(self, conn: socket.socket) -> tuple[str, bytes]:
+        msg_type_bytes = self._read_uint8(conn)
+        msg_type = self.parser.parse_message_type_to_hex(msg_type_bytes)[0]
+        data = b""
+        if msg_type == "20":
+            data += self._read_str(conn)
+            data += self._read_uint32(conn)
+            return msg_type, data
+        elif msg_type == "40":
+            data += self._read_uint32(conn)
+            return msg_type, data
+        elif msg_type == "80":
+            data += self._read_uint16(conn, size=3)
+            return msg_type, data
+        elif msg_type == "81":
+            data += self._read_uint_arr(conn)
+            return msg_type, data
