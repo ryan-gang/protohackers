@@ -1,5 +1,4 @@
 import logging
-import socket
 import sys
 
 logging.basicConfig(
@@ -39,22 +38,3 @@ class Dispatcher(object):
 
     def __str__(self):
         return f"Dispatcher@{id(self)}"
-
-
-def recv_all(conn: socket.socket):
-    data, size = b"", 32
-    while True:
-        packet = conn.recv(size)
-        if not packet:
-            break
-        data += packet
-    return data
-
-
-def send_data(conn: socket.socket, response: str):
-    try:
-        logging.debug(f"Response : {response.strip()}")
-        conn.send(response.encode())
-        # logging.info(f"Sent {len(response)} bytes.")
-    except Exception as E:
-        logging.error(E)
