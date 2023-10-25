@@ -73,7 +73,7 @@ class Parser(object):
         remaining = str_bytes[length:]
         return list(map(int, unpacked)), remaining
 
-    def parse_message_type(self, str_bytes: bytes) -> tuple[str, bytes]:
+    def parse_message_type_to_hex(self, str_bytes: bytes) -> tuple[str, bytes]:
         return hex(str_bytes[0])[2:], str_bytes[1:]
 
     # Type : 10

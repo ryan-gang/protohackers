@@ -3,7 +3,9 @@ import socket
 import sys
 import threading
 import time
-from helpers import recv_data
+
+from helpers import recv_all
+from protocol import Parser, Serializer
 
 logging.basicConfig(
     format=(
@@ -15,15 +17,30 @@ logging.basicConfig(
     handlers=[logging.FileHandler("app.log"), logging.StreamHandler(sys.stdout)],
 )
 
-IP, PORT = "10.138.0.2", 9090
+IP, PORT = "10.128.0.2", 9090
+parser = Parser()
+serializer = Serializer()
 
 
 def handler(conn: socket.socket, addr: socket.AddressFamily):
     logging.info(f"Connected to client @ {addr}")
     while 1:
         try:
-            data = recv_data(conn)
-            logging.info(data)
+            data = recv_all(conn)
+            logging.debug(f"Request : {data} as hex : {data.hex()}")
+
+            code, data = parser.parse_message_type_to_hex(data)
+            if code == "20":
+                logging.info(f"Message: {parser.parse_plate_data(data)}")
+            elif code == "40":
+                logging.info(f"Message: {parser.parse_wantheartbeat_data(data)}")
+            elif code == "80":
+                logging.info(f"Message: {parser.parse_iamcamera_data(data)}")
+            elif code == "81":
+                logging.info(f"Message: {parser.parse_iamdispatcher_data(data)}")
+            else:
+                serializer.serialize_error_data(msg="Unknown message type")
+
         except (ConnectionResetError, OSError) as E:
             logging.error(E)
             conn.close()

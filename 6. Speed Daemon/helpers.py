@@ -41,16 +41,14 @@ class Dispatcher(object):
         return f"Dispatcher@{id(self)}"
 
 
-def recv_data(conn: socket.socket):
-    request, size = "", 32
+def recv_all(conn: socket.socket):
+    data, size = b"", 32
     while True:
-        message = conn.recv(size)
-        request += message.decode()
-        if not message:
-            raise ConnectionResetError("Client Disconnected.")
-        if request.endswith("\n"):
-            logging.debug(f"Request : {request.strip()}")
-            return request
+        packet = conn.recv(size)
+        if not packet:
+            break
+        data += packet
+    return data
 
 
 def send_data(conn: socket.socket, response: str):
