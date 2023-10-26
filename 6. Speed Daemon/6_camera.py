@@ -28,7 +28,7 @@ logging.basicConfig(
     handlers=[logging.FileHandler("app.log"), logging.StreamHandler(sys.stdout)],
 )
 
-IP, PORT = "10.138.0.2", 9090
+IP, PORT = "10.128.0.2", 9090
 parser = Parser()
 serializer = Serializer()
 sock_handler = SocketHandler()
@@ -59,7 +59,7 @@ def handler(conn: socket.socket, addr: socket.AddressFamily, client_uuid: str):
                 if heartbeat_requested:
                     raise RuntimeError("Heartbeat already requested")
                 if interval > 0:
-                    heartbeat_register_client(client_uuid, conn, interval // 10)
+                    heartbeat_register_client(client_uuid, conn, interval / 10)
                 heartbeat_requested = True
 
             elif msg_type == "80":

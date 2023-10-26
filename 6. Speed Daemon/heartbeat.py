@@ -22,7 +22,7 @@ heartbeat_clients_lock = Lock()
 
 
 class Heartbeat(object):
-    def __init__(self, conn: socket.socket, interval: int):
+    def __init__(self, conn: socket.socket, interval: float):
         self.serializer = Serializer()
         self.sock_handler = SocketHandler()
         self.msg = self.generate_heartbeat()
@@ -45,7 +45,7 @@ class Heartbeat(object):
             self.send_heartbeat()
 
 
-def heartbeat_register_client(client_uuid: str, conn: socket.socket, interval: int):
+def heartbeat_register_client(client_uuid: str, conn: socket.socket, interval: float):
     # interval is in deciseconds
     logging.info(f"Registering new client : {client_uuid} for Heartbeat.")
     heartbeat_clients[client_uuid] = Heartbeat(conn, interval)
@@ -62,7 +62,12 @@ def heartbeat_thread():
 
     while 1:
         with heartbeat_clients_lock:
-            for client in heartbeat_clients:
-                # logging.debug(f"Ticking client : {client}")
-                heartbeat_clients[client].ticktock(uuid=client)
+            try:
+                for client in heartbeat_clients:
+                    # logging.debug(f"Ticking client : {client}")
+                    heartbeat_clients[client].ticktock(uuid=client)
+            except (ConnectionResetError, OSError) as err:
+                logging.error(err)
+                heartbeat_deregister_client(client)
+
         time.sleep(sleep_interval)
