@@ -4,6 +4,8 @@ import struct
 import sys
 from typing import Callable
 
+from errors import ProtocolError
+
 logging.basicConfig(
     format=(
         "%(asctime)s | %(levelname)s | %(name)s |  [%(filename)s:%(lineno)d] | %(threadName)-10s |"
@@ -124,10 +126,12 @@ class Parser(object):
 
     # Type : 80
     def parse_iamcamera_data(self, str_bytes: bytes) -> tuple[int, int, int, bytes]:
-        road, str_bytes = self.parse_uint16(str_bytes)
-        mile, str_bytes = self.parse_uint16(str_bytes)
-        limit, str_bytes = self.parse_uint16(str_bytes)
-
+        try:
+            road, str_bytes = self.parse_uint16(str_bytes)
+            mile, str_bytes = self.parse_uint16(str_bytes)
+            limit, str_bytes = self.parse_uint16(str_bytes)
+        except Exception as E:
+            raise ProtocolError(E)
         return (road, mile, limit, str_bytes)
 
     # Type : 81

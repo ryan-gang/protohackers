@@ -5,6 +5,7 @@ import threading
 import time
 import uuid
 
+from errors import ProtocolError
 from heartbeat import heartbeat_deregister_client, heartbeat_register_client, heartbeat_thread
 from helpers import CAMERAS, DISPATCHERS, Camera, Dispatcher, Sightings, ticket_dispatcher_thread
 from protocol import Parser, Serializer, SocketHandler
@@ -85,7 +86,10 @@ def handler(conn: socket.socket, addr: socket.AddressFamily, client_uuid: str):
             sock_handler.send_data(conn, err)
             conn.close()
             return
-
+        except ProtocolError as err:
+            logging.error(err)
+            conn.close()
+            return
         time.sleep(1)  # Give other threads a chance.
 
 

@@ -136,7 +136,7 @@ class Sightings(object):
         dist = mile2 - mile1  # miles
         time = (timestamp2 - timestamp1) / 60 / 60  # hour
         speed = dist // time  # mph
-        return speed
+        return abs(speed)
 
     def get_tickets(self, road: int, plate: str, timestamp: int, mile: int, speed_limit: int):
         entries = self._get_closest_sightings(road, plate, timestamp)
