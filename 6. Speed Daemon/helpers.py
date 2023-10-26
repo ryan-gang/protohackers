@@ -1,4 +1,5 @@
 import logging
+import socket
 import sys
 
 logging.basicConfig(
@@ -14,11 +15,9 @@ logging.basicConfig(
 
 class Camera(object):
     type = "Camera"
-    road = None
-    mile = None
-    limit = None
 
-    def __init__(self, road: int, mile: int, limit: int):
+    def __init__(self, conn: socket.socket, road: int, mile: int, limit: int):
+        self.conn = conn
         self.road = road
         self.mile = mile
         self.limit = limit
@@ -29,11 +28,10 @@ class Camera(object):
 
 class Dispatcher(object):
     type = "Dispatcher"
-    num_roads = None
-    roads = []
 
-    def __init__(self, num_roads: int, roads: list[int]):
-        self.num_roads = num_roads
+    def __init__(self, conn: socket.socket, roads: list[int]):
+        self.conn = conn
+        self.num_roads = len(roads)
         self.roads = roads
 
     def __str__(self):

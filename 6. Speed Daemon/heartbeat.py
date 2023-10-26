@@ -1,6 +1,7 @@
 import logging
 import socket
 import sys
+from threading import Lock
 import time
 
 from protocol import Serializer, SocketHandler
@@ -16,20 +17,21 @@ logging.basicConfig(
 )
 
 
-heartbeat_clients: dict[socket.socket, "Heartbeat"] = {}
+heartbeat_clients: dict[str, "Heartbeat"] = {}  # client_uuid -> Heartbeat object
+heartbeat_clients_lock = Lock()
 
 
 class Heartbeat(object):
-    def __init__(self, client: socket.socket, interval: int):
+    def __init__(self, conn: socket.socket, interval: int):
         self.serializer = Serializer()
         self.sock_handler = SocketHandler()
         self.msg = self.generate_heartbeat().decode()
-        self.client = client
+        self.conn = conn
         self.interval = interval  # second
         self.elapsed = 0
 
     def send_heartbeat(self):
-        self.sock_handler.send_data(self.client, self.msg)
+        self.sock_handler.send_data(self.conn, self.msg)
 
     def generate_heartbeat(self) -> bytes:
         return self.serializer.serialize_heartbeat_data()
@@ -42,23 +44,24 @@ class Heartbeat(object):
             self.send_heartbeat()
 
 
-def heartbeat_register_client(client: socket.socket, interval: int):
+def heartbeat_register_client(client_uuid: str, conn: socket.socket, interval: int):
     # interval is in deciseconds
-    logging.info("Registering new client for Heartbeat.")
-    heartbeat_clients[client] = Heartbeat(client, interval)
+    logging.info(f"Registering new client : {client_uuid} for Heartbeat.")
+    heartbeat_clients[client_uuid] = Heartbeat(conn, interval)
 
 
-def heartbeat_deregister_client(client: socket.socket):
-    logging.info("Deregistering client from Heartbeat.")
-    if client in heartbeat_clients:
-        heartbeat_clients.pop(client)
+def heartbeat_deregister_client(client_uuid: str):
+    logging.info("Deregistering client : {client_uuid} from Heartbeat.")
+    if client_uuid in heartbeat_clients:
+        heartbeat_clients.pop(client_uuid)
 
 
 def heartbeat_thread():
     sleep_interval = 0.5  # 5 decisecond
 
     while 1:
-        for client in heartbeat_clients:
-            # logging.debug(f"Ticking client : {client}")
-            heartbeat_clients[client].ticktock()
-            time.sleep(sleep_interval)
+        with heartbeat_clients_lock:
+            for client in heartbeat_clients:
+                # logging.debug(f"Ticking client : {client}")
+                heartbeat_clients[client].ticktock()
+        time.sleep(sleep_interval)
