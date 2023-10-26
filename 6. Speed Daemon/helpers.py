@@ -24,7 +24,7 @@ SIGHTINGS: dict[int, dict[str, list[tuple[int, int]]]] = defaultdict(
     lambda: defaultdict(list)
 )  # Road -> {Plate -> [Time, Mile]}
 TICKETS: set["Ticket"] = set()
-TICKETS_SERVED = dict[str, list[int]]  # plate -> [day]
+TICKETS_SERVED: dict[str, list[int]] = defaultdict(list)  # plate -> [day]
 tickets_lock = Lock()
 
 
@@ -97,6 +97,9 @@ class Ticket(object):
             f" {self.mile2, self.timestamp2}"
         )
 
+    def get_day(self) -> int:
+        return self.timestamp1 // 86400
+
 
 class Sightings(object):
     def __init__(self):
@@ -118,10 +121,13 @@ class Sightings(object):
         with tickets_lock:
             idx = bisect.bisect(SIGHTINGS[road][plate], timestamp, key=lambda item: item[0])
             entries: list[tuple[int, int]] = []
+            arr = SIGHTINGS[road][plate]
+            if idx >= 0 and idx < len(arr):
+                entries.append(arr[idx])
             if idx > 0:
-                entries.append(SIGHTINGS[road][plate][idx - 1])
-            if idx < len(SIGHTINGS[road][plate]) - 1:
-                entries.append(SIGHTINGS[road][plate][idx + 1])
+                entries.append(arr[idx - 1])
+            if idx < len(arr) - 1:
+                entries.append(arr[idx + 1])
         logging.info(f"Looking for closest sightings for {plate},{timestamp} on {road}")
         logging.info(f"Found sightings : {entries}")
         return entries
@@ -157,13 +163,16 @@ def ticket_dispatcher_thread():
         served: set[Ticket] = set()
         with tickets_lock:
             for ticket in TICKETS:
+                day = ticket.get_day()
+                if day in TICKETS_SERVED[ticket.plate]:
+                    served.add(ticket)
+                    continue
                 road = ticket.road
                 if road in DISPATCHERS:
                     dispatcher = DISPATCHERS[road][0]
                     dispatcher.dispatch_ticket(ticket)
                     served.add(ticket)
-                    # TICKETS_SERVED[ticket.plate].append(ticket.timestamp1)
-                    logging.info(f"Dispatching ticket : {ticket.print_ticket()}")
+                    TICKETS_SERVED[ticket.plate].append(ticket.get_day())
         for served_ticket in served:
             TICKETS.remove(served_ticket)
         time.sleep(sleep_interval)
