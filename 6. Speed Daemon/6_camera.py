@@ -3,8 +3,11 @@ import socket
 import sys
 import threading
 import time
+import uuid
+from collections import defaultdict
 
 from heartbeat import heartbeat_deregister_client, heartbeat_register_client, heartbeat_thread
+from helpers import Camera, Dispatcher
 from protocol import Parser, Serializer, SocketHandler
 
 logging.basicConfig(
@@ -17,36 +20,73 @@ logging.basicConfig(
     handlers=[logging.FileHandler("app.log"), logging.StreamHandler(sys.stdout)],
 )
 
-IP, PORT = "10.128.0.2", 9090
+IP, PORT = "10.138.0.2", 9090
 parser = Parser()
 serializer = Serializer()
 sock_handler = SocketHandler()
+CAMERAS: dict[int, list[Camera]] = defaultdict(list)  # Road -> [Camera]
+DISPATCHERS: dict[int, list[Dispatcher]] = defaultdict(list)  # Road -> [Dispatcher]
+SIGHTINGS: dict[int, dict[str, list[int]]] = defaultdict(
+    lambda: defaultdict(list)
+)  # Road -> {Plate -> [Time]}
 
 
-def handler(conn: socket.socket, addr: socket.AddressFamily):
+def handler(conn: socket.socket, addr: socket.AddressFamily, client_uuid: str):
     logging.info(f"Connected to client @ {addr}")
+    client_type_known = heartbeat_requested = False
+    cam_client = disp_client = None
     while 1:
         try:
             msg_type, data = sock_handler.read_data(conn)
             logging.debug(f"Req : {msg_type} : {data} as hex : {data.hex()}")
 
             if msg_type == "20":
-                logging.info(f"Message: {parser.parse_plate_data(data)}")
+                plate, timestamp, _ = parser.parse_plate_data(data)
+                if not client_type_known or cam_client is None:
+                    raise RuntimeError("Client unknown")
+                road = cam_client.road
+                SIGHTINGS[road][plate].append(timestamp)
+
             elif msg_type == "40":
                 interval, _ = parser.parse_wantheartbeat_data(data)
+                logging.info(f"Message : WantHeartBeat @ {interval//10} seconds.")
+                if heartbeat_requested:
+                    raise RuntimeError("Heartbeat already requested")
                 if interval > 0:
-                    heartbeat_register_client(conn, interval // 10)
-                logging.info(f"Message: WantHeartBeat @ {interval//10} seconds.")
+                    heartbeat_register_client(client_uuid, conn, interval // 10)
+                heartbeat_requested = True
+
             elif msg_type == "80":
-                logging.info(f"Message: {parser.parse_iamcamera_data(data)}")
+                road, mile, limit, _ = parser.parse_iamcamera_data(data)
+                logging.debug(f"Message : Camera @ {road}/{mile}/{limit}")
+                if client_type_known:
+                    raise RuntimeError("Client has already identified itself")
+                cam_client = Camera(conn, road, mile, limit)
+                CAMERAS[road].append(cam_client)
+                client_type_known = True
+
             elif msg_type == "81":
-                logging.info(f"Message: {parser.parse_iamdispatcher_data(data)}")
+                roads, _ = parser.parse_iamdispatcher_data(data)
+                logging.debug(f"Message : Dispatcher @ {roads}")
+                if client_type_known:
+                    raise RuntimeError("Client has already identified itself")
+                disp_client = Dispatcher(conn, roads)
+                for road in roads:
+                    DISPATCHERS[road].append(disp_client)
+                client_type_known = True
+
             else:
-                err = serializer.serialize_error_data(msg="Unknown message type")
-                sock_handler.send_data(conn, err.decode())
-        except (ConnectionResetError, OSError) as E:
-            logging.error(E)
-            heartbeat_deregister_client(conn)
+                raise RuntimeError("Unknown message type")
+        except (ConnectionResetError, OSError) as err:
+            logging.error(err)
+            heartbeat_deregister_client(client_uuid)
+            conn.close()
+            return
+        except RuntimeError as err:
+            logging.error(err)
+            heartbeat_deregister_client(client_uuid)
+            err = serializer.serialize_error_data(msg="Unknown message type")
+            sock_handler.send_data(conn, err.decode())
             conn.close()
             return
 
@@ -61,7 +101,7 @@ def main():
         conn, addr = server_socket.accept()
         # conn.settimeout(10)  # Set timeout for connection to 10 seconds.
         # Spin out a new thread to process this request, return control back to main thread.
-        threading.Thread(target=handler, args=(conn, addr)).start()
+        threading.Thread(target=handler, args=(conn, addr, uuid.uuid4())).start()
 
 
 if __name__ == "__main__":
