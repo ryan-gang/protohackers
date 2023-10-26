@@ -151,7 +151,7 @@ class Sightings(object):
             if _speed > speed_limit:
                 speed = int(_speed * 100)
 
-                tix = Ticket(plate, road, _mile, _timestamp, mile, timestamp, speed)
+                tix = Ticket(plate, road, mile1, timestamp1, mile2, timestamp2, speed)
                 logging.info(f"New ticket created : {tix.print_ticket()}")
                 TICKETS.add(tix)
 
