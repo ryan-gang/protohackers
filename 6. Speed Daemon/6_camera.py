@@ -7,7 +7,15 @@ import uuid
 
 from errors import ProtocolError
 from heartbeat import heartbeat_deregister_client, heartbeat_register_client, heartbeat_thread
-from helpers import CAMERAS, DISPATCHERS, Camera, Dispatcher, Sightings, ticket_dispatcher_thread
+from helpers import (
+    CAMERAS,
+    DISPATCHERS,
+    Camera,
+    Dispatcher,
+    Sightings,
+    ticket_dispatcher_thread,
+    tickets_lock,
+)
 from protocol import Parser, Serializer, SocketHandler
 
 logging.basicConfig(
@@ -42,8 +50,9 @@ def handler(conn: socket.socket, addr: socket.AddressFamily, client_uuid: str):
                     raise RuntimeError("Client unknown")
                 road, mile = cam_client.road, cam_client.mile
                 speed_limit = cam_client.limit
-                sightings.get_tickets(road, plate, timestamp, mile, speed_limit)
-                sightings.add_sighting(road, plate, timestamp, mile)
+                with tickets_lock:
+                    sightings.get_tickets(road, plate, timestamp, mile, speed_limit)
+                    sightings.add_sighting(road, plate, timestamp, mile)
             elif msg_type == "40":
                 interval, _ = parser.parse_wantheartbeat_data(data)
                 logging.info(f"Message : WantHeartBeat @ {interval//10} seconds.")

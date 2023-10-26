@@ -111,32 +111,32 @@ class Sightings(object):
     def add_sighting(self, road: int, plate: str, timestamp: int, mile: int):
         # Add sighting to datastore only after checking for possible tickets.
         entry = tuple((timestamp, mile))
-        with tickets_lock:
-            logging.info(f"Add sighting for {plate} @ {entry} on road {road}")
-            bisect.insort(SIGHTINGS[road][plate], entry, key=lambda item: item[0])
+        # with tickets_lock:
+        logging.info(f"Add sighting for {plate} @ {entry} on road {road}")
+        bisect.insort(SIGHTINGS[road][plate], entry, key=lambda item: item[0])
 
     def _get_closest_sightings(
         self, road: int, plate: str, timestamp: int
     ) -> list[tuple[int, int]]:
-        with tickets_lock:
-            idx = bisect.bisect(SIGHTINGS[road][plate], timestamp, key=lambda item: item[0])
-            entries: list[tuple[int, int]] = []
-            arr = SIGHTINGS[road][plate]
-            if idx >= 0 and idx < len(arr):
-                entries.append(arr[idx])
-            if idx > 0:
-                entries.append(arr[idx - 1])
-            if idx < len(arr) - 1:
-                entries.append(arr[idx + 1])
         logging.info(f"Looking for closest sightings for {plate},{timestamp} on {road}")
+        # with tickets_lock:
+        idx = bisect.bisect(SIGHTINGS[road][plate], timestamp, key=lambda item: item[0])
+        entries: list[tuple[int, int]] = []
+        arr = SIGHTINGS[road][plate]
+        if idx >= 0 and idx < len(arr):
+            entries.append(arr[idx])
+        if idx > 0:
+            entries.append(arr[idx - 1])
+        if idx < len(arr) - 1:
+            entries.append(arr[idx + 1])
         logging.info(f"Found sightings : {entries}")
         return entries
 
     def _compute_speed(self, timestamp1: int, mile1: int, timestamp2: int, mile2: int):
         dist = mile2 - mile1  # miles
         time = (timestamp2 - timestamp1) / 60 / 60  # hour
-        speed = dist // time  # mph
-        return abs(speed)
+        speed = dist / time  # mph
+        return abs(round(speed, 2))
 
     def get_tickets(self, road: int, plate: str, timestamp: int, mile: int, speed_limit: int):
         entries = self._get_closest_sightings(road, plate, timestamp)
