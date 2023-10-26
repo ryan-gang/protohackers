@@ -124,9 +124,9 @@ class Parser(object):
 
     # Type : 80
     def parse_iamcamera_data(self, str_bytes: bytes) -> tuple[int, int, int, bytes]:
-        road, str_bytes = self._parse_uint32(str_bytes)
-        mile, str_bytes = self._parse_uint32(str_bytes)
-        limit, str_bytes = self._parse_uint32(str_bytes)
+        road, str_bytes = self._parse_uint16(str_bytes)
+        mile, str_bytes = self._parse_uint16(str_bytes)
+        limit, str_bytes = self._parse_uint16(str_bytes)
 
         return (road, mile, limit, str_bytes)
 
@@ -252,6 +252,9 @@ class SocketHandler(object):
 
     def read_data(self, conn: socket.socket) -> tuple[str, bytes]:
         msg_type_bytes = self._read_uint8(conn)
+        if not msg_type_bytes:
+            raise ConnectionRefusedError("Client Disconnected")
+        # logging.info(msg_type_bytes.hex())
         msg_type = self.parser.parse_message_type_to_hex(msg_type_bytes)[0]
         data = b""
         if msg_type == "20":
@@ -267,3 +270,5 @@ class SocketHandler(object):
         elif msg_type == "81":
             data += self._read_uint_arr(conn)
             return msg_type, data
+        else:
+            raise RuntimeError("Unexpected msg_type")

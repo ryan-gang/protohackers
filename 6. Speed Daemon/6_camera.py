@@ -4,7 +4,7 @@ import sys
 import threading
 import time
 
-from heartbeat import heartbeat_register_client, heartbeat_thread
+from heartbeat import heartbeat_deregister_client, heartbeat_register_client, heartbeat_thread
 from protocol import Parser, Serializer, SocketHandler
 
 logging.basicConfig(
@@ -28,7 +28,7 @@ def handler(conn: socket.socket, addr: socket.AddressFamily):
     while 1:
         try:
             msg_type, data = sock_handler.read_data(conn)
-            logging.debug(f"Request : {data} as hex : {data.hex()}")
+            logging.debug(f"Req : {msg_type} : {data} as hex : {data.hex()}")
 
             if msg_type == "20":
                 logging.info(f"Message: {parser.parse_plate_data(data)}")
@@ -46,6 +46,7 @@ def handler(conn: socket.socket, addr: socket.AddressFamily):
                 sock_handler.send_data(conn, err.decode())
         except (ConnectionResetError, OSError) as E:
             logging.error(E)
+            heartbeat_deregister_client(conn)
             conn.close()
             return
 
