@@ -6,7 +6,7 @@ import time
 import uuid
 
 from heartbeat import heartbeat_deregister_client, heartbeat_register_client, heartbeat_thread
-from helpers import Camera, Dispatcher, CAMERAS, DISPATCHERS, Sightings
+from helpers import CAMERAS, DISPATCHERS, Camera, Dispatcher, Sightings, ticket_dispatcher_thread
 from protocol import Parser, Serializer, SocketHandler
 
 logging.basicConfig(
@@ -82,7 +82,7 @@ def handler(conn: socket.socket, addr: socket.AddressFamily, client_uuid: str):
             logging.error(err)
             heartbeat_deregister_client(client_uuid)
             err = serializer.serialize_error_data(msg="Unknown message type")
-            sock_handler.send_data(conn, err.decode())
+            sock_handler.send_data(conn, err)
             conn.close()
             return
 
@@ -93,6 +93,7 @@ def main():
     server_socket = socket.create_server((IP, PORT), reuse_port=True)
     logging.info(f"Started Server @ {IP}")
     threading.Thread(target=heartbeat_thread, daemon=True).start()
+    threading.Thread(target=ticket_dispatcher_thread, daemon=True).start()
     while True:
         conn, addr = server_socket.accept()
         # conn.settimeout(10)  # Set timeout for connection to 10 seconds.

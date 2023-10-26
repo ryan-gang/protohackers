@@ -218,10 +218,10 @@ class SocketHandler(object):
     def __init__(self):
         self.parser = Parser()
 
-    def send_data(self, conn: socket.socket, response: str):
+    def send_data(self, conn: socket.socket, response: bytes):
         try:
-            logging.debug(f"Response : {response.strip()}")
-            conn.send(response.encode())
+            logging.debug(f"Response : {response}")
+            conn.send(response)
             # logging.info(f"Sent {len(response)} bytes.")
         except Exception as E:
             logging.error(E)

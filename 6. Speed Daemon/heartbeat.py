@@ -25,7 +25,7 @@ class Heartbeat(object):
     def __init__(self, conn: socket.socket, interval: int):
         self.serializer = Serializer()
         self.sock_handler = SocketHandler()
-        self.msg = self.generate_heartbeat().decode()
+        self.msg = self.generate_heartbeat()
         self.conn = conn
         self.interval = interval  # second
         self.elapsed = 0
@@ -36,11 +36,12 @@ class Heartbeat(object):
     def generate_heartbeat(self) -> bytes:
         return self.serializer.serialize_heartbeat_data()
 
-    def ticktock(self, sleep_interval: float = 0.5):
+    def ticktock(self, uuid: str, sleep_interval: float = 0.5):
         # logging.debug(f"Ticktock : {self.elapsed}")
         self.elapsed += sleep_interval
         if self.elapsed == self.interval:
             self.elapsed = 0
+            logging.info(f"Sending heartbeat to : {uuid}")
             self.send_heartbeat()
 
 
@@ -63,5 +64,5 @@ def heartbeat_thread():
         with heartbeat_clients_lock:
             for client in heartbeat_clients:
                 # logging.debug(f"Ticking client : {client}")
-                heartbeat_clients[client].ticktock()
+                heartbeat_clients[client].ticktock(uuid=client)
         time.sleep(sleep_interval)

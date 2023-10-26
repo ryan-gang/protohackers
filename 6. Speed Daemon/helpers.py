@@ -68,7 +68,8 @@ class Dispatcher(object):
             ticket.speed,
         )
         ticket_object = serializer.serialize_ticket_data(p, r, m1, t1, m2, t2, s)
-        sock_handler.send_data(self.conn, ticket_object.decode())
+        logging.info(f"Dispatching ticket : {ticket.print_ticket()}")
+        sock_handler.send_data(self.conn, ticket_object)
 
 
 class Ticket(object):
@@ -107,18 +108,20 @@ class Sightings(object):
     def add_sighting(self, road: int, plate: str, timestamp: int, mile: int):
         # Add sighting to datastore only after checking for possible tickets.
         entry = tuple((timestamp, mile))
-        logging.info(f"Add sighting for {plate} @ {entry} on road {road}")
-        bisect.insort(SIGHTINGS[road][plate], entry, key=lambda item: item[0])
+        with tickets_lock:
+            logging.info(f"Add sighting for {plate} @ {entry} on road {road}")
+            bisect.insort(SIGHTINGS[road][plate], entry, key=lambda item: item[0])
 
     def _get_closest_sightings(
         self, road: int, plate: str, timestamp: int
     ) -> list[tuple[int, int]]:
-        idx = bisect.bisect(SIGHTINGS[road][plate], timestamp, key=lambda item: item[0])
-        entries: list[tuple[int, int]] = []
-        if idx > 0:
-            entries.append(SIGHTINGS[road][plate][idx - 1])
-        if idx < len(SIGHTINGS[road][plate]) - 1:
-            entries.append(SIGHTINGS[road][plate][idx + 1])
+        with tickets_lock:
+            idx = bisect.bisect(SIGHTINGS[road][plate], timestamp, key=lambda item: item[0])
+            entries: list[tuple[int, int]] = []
+            if idx > 0:
+                entries.append(SIGHTINGS[road][plate][idx - 1])
+            if idx < len(SIGHTINGS[road][plate]) - 1:
+                entries.append(SIGHTINGS[road][plate][idx + 1])
         logging.info(f"Looking for closest sightings for {plate},{timestamp} on {road}")
         logging.info(f"Found sightings : {entries}")
         return entries
