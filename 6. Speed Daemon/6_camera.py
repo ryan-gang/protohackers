@@ -55,7 +55,7 @@ def handler(conn: socket.socket, addr: socket.AddressFamily, client_uuid: str):
                     sightings.add_sighting(road, plate, timestamp, mile)
             elif msg_type == "40":
                 interval, _ = parser.parse_wantheartbeat_data(data)
-                logging.info(f"Message : WantHeartBeat @ {interval//10} seconds.")
+                logging.info(f"Message : WantHeartBeat @ {interval/10} seconds.")
                 if heartbeat_requested:
                     raise RuntimeError("Heartbeat already requested")
                 if interval > 0:

@@ -24,7 +24,7 @@ SIGHTINGS: dict[int, dict[str, list[tuple[int, int]]]] = defaultdict(
     lambda: defaultdict(list)
 )  # Road -> {Plate -> [Time, Mile]}
 TICKETS: set["Ticket"] = set()
-TICKETS_SERVED: dict[str, list[int]] = defaultdict(list)  # plate -> [day]
+TICKETS_SERVED: dict[str, set[int]] = defaultdict(set)  # plate -> [day]
 tickets_lock = Lock()
 
 
@@ -97,8 +97,11 @@ class Ticket(object):
             f" {self.mile2, self.timestamp2}"
         )
 
-    def get_day(self) -> int:
+    def get_day1(self) -> int:
         return self.timestamp1 // 86400
+
+    def get_day2(self) -> int:
+        return self.timestamp2 // 86400
 
 
 class Sightings(object):
@@ -163,8 +166,8 @@ def ticket_dispatcher_thread():
         served: set[Ticket] = set()
         with tickets_lock:
             for ticket in TICKETS:
-                day = ticket.get_day()
-                if day in TICKETS_SERVED[ticket.plate]:
+                day1, day2 = ticket.get_day1(), ticket.get_day2()
+                if day1 in TICKETS_SERVED[ticket.plate] or day2 in TICKETS_SERVED[ticket.plate]:
                     served.add(ticket)
                     continue
                 road = ticket.road
@@ -172,7 +175,8 @@ def ticket_dispatcher_thread():
                     dispatcher = DISPATCHERS[road][0]
                     dispatcher.dispatch_ticket(ticket)
                     served.add(ticket)
-                    TICKETS_SERVED[ticket.plate].append(ticket.get_day())
+                    TICKETS_SERVED[ticket.plate].add(ticket.get_day1())
+                    TICKETS_SERVED[ticket.plate].add(ticket.get_day2())
         for served_ticket in served:
             TICKETS.remove(served_ticket)
         time.sleep(sleep_interval)
