@@ -90,6 +90,12 @@ class Ticket(object):
         self.timestamp2 = timestamp2
         self.speed = speed
 
+    def print_ticket(self):
+        return (
+            f"Ticket for {self.plate} on {self.road} between {self.mile1, self.timestamp1} and"
+            f" {self.mile2, self.timestamp2}"
+        )
+
 
 class Sightings(object):
     def __init__(self):
@@ -101,6 +107,7 @@ class Sightings(object):
     def add_sighting(self, road: int, plate: str, timestamp: int, mile: int):
         # Add sighting to datastore only after checking for possible tickets.
         entry = tuple((timestamp, mile))
+        logging.info(f"Add sighting for {plate} @ {entry} on road {road}")
         bisect.insort(SIGHTINGS[road][plate], entry, key=lambda item: item[0])
 
     def _get_closest_sightings(
@@ -112,6 +119,8 @@ class Sightings(object):
             entries.append(SIGHTINGS[road][plate][idx - 1])
         if idx < len(SIGHTINGS[road][plate]) - 1:
             entries.append(SIGHTINGS[road][plate][idx + 1])
+        logging.info(f"Looking for closest sightings for {plate},{timestamp} on {road}")
+        logging.info(f"Found sightings : {entries}")
         return entries
 
     def _compute_speed(self, timestamp1: int, mile1: int, timestamp2: int, mile2: int):
@@ -132,7 +141,9 @@ class Sightings(object):
             _speed = self._compute_speed(timestamp1, mile1, timestamp2, mile2)
             if _speed > speed_limit:
                 speed = int(_speed * 100)
+
                 tix = Ticket(plate, road, _mile, _timestamp, mile, timestamp, speed)
+                logging.info(f"New ticket created : {tix.print_ticket()}")
                 TICKETS.add(tix)
 
 
@@ -149,7 +160,7 @@ def ticket_dispatcher_thread():
                     dispatcher.dispatch_ticket(ticket)
                     served.add(ticket)
                     # TICKETS_SERVED[ticket.plate].append(ticket.timestamp1)
-                    logging.debug(f"Dispatching ticket : {ticket}")
+                    logging.info(f"Dispatching ticket : {ticket.print_ticket()}")
         for served_ticket in served:
             TICKETS.remove(served_ticket)
         time.sleep(sleep_interval)
