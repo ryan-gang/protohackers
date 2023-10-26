@@ -51,7 +51,7 @@ def heartbeat_register_client(client_uuid: str, conn: socket.socket, interval: i
 
 
 def heartbeat_deregister_client(client_uuid: str):
-    logging.info("Deregistering client : {client_uuid} from Heartbeat.")
+    logging.info(f"Deregistering client : {client_uuid} from Heartbeat.")
     if client_uuid in heartbeat_clients:
         heartbeat_clients.pop(client_uuid)
 
