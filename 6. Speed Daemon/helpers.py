@@ -160,7 +160,7 @@ class Sightings(object):
 
 
 def ticket_dispatcher_thread():
-    sleep_interval = 2  # 2 seconds
+    sleep_interval = 5  # 5 seconds
 
     while 1:
         served: set[Ticket] = set()
