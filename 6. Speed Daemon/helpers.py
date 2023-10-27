@@ -68,7 +68,7 @@ class Dispatcher(object):
             ticket.speed,
         )
         ticket_object = serializer.serialize_ticket_data(p, r, m1, t1, m2, t2, s)
-        logging.info(f"Dispatching ticket : {ticket.print_ticket()}")
+        logging.critical(f"Dispatching ticket : {ticket.print_ticket()}")
         sock_handler.send_data(self.conn, ticket_object)
 
 

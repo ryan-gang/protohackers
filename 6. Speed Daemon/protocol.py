@@ -199,17 +199,18 @@ class Serializer(object):
     ) -> bytes:
         CODE_NAME = "TICKET"
         CODE = self.codes[CODE_NAME]
-        data = b""
-        data += self._serialize_uint8(CODE)
-        data += self._serialize_lp_str(plate)
-        data += self._serialize_uint16(road)
-        data += self._serialize_uint16(mile1)
-        data += self._serialize_uint32(timestamp1)
-        data += self._serialize_uint16(mile2)
-        data += self._serialize_uint32(timestamp2)
-        data += self._serialize_uint16(speed)
 
-        return data
+        data = bytearray()
+        data.extend(self._serialize_uint8(CODE))
+        data.extend(self._serialize_lp_str(plate))
+        data.extend(self._serialize_uint16(road))
+        data.extend(self._serialize_uint16(mile1))
+        data.extend(self._serialize_uint32(timestamp1))
+        data.extend(self._serialize_uint16(mile2))
+        data.extend(self._serialize_uint32(timestamp2))
+        data.extend(self._serialize_uint16(speed))
+
+        return bytes(data)
 
     def serialize_heartbeat_data(self) -> bytes:
         CODE_NAME = "HEARTBEAT"
@@ -259,20 +260,20 @@ class SocketHandler(object):
         if not msg_type_bytes:
             raise ConnectionRefusedError("Client Disconnected")
         # logging.info(msg_type_bytes.hex())
-        msg_type = self.parser.parse_message_type_to_hex(msg_type_bytes)[0]
-        data = b""
+        msg_type, _ = self.parser.parse_message_type_to_hex(msg_type_bytes)
+        data = bytearray()
         if msg_type == "20":
-            data += self._read_str(conn)
-            data += self._read_uint32(conn)
-            return msg_type, data
+            data.extend(self._read_str(conn))
+            data.extend(self._read_uint32(conn))
+            return msg_type, bytes(data)
         elif msg_type == "40":
-            data += self._read_uint32(conn)
-            return msg_type, data
+            data.extend(self._read_uint32(conn))
+            return msg_type, bytes(data)
         elif msg_type == "80":
-            data += self._read_uint16(conn, size=3)
-            return msg_type, data
+            data.extend(self._read_uint16(conn, size=3))
+            return msg_type, bytes(data)
         elif msg_type == "81":
-            data += self._read_uint_arr(conn)
-            return msg_type, data
+            data.extend(self._read_uint_arr(conn))
+            return msg_type, bytes(data)
         else:
             raise RuntimeError("Unexpected msg_type")

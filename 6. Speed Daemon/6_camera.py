@@ -107,6 +107,8 @@ def main():
     logging.info(f"Started Server @ {IP}")
     threading.Thread(target=heartbeat_thread, daemon=True).start()
     threading.Thread(target=ticket_dispatcher_thread, daemon=True).start()
+    threading.Thread(target=ticket_dispatcher_thread, daemon=True).start()
+    threading.Thread(target=ticket_dispatcher_thread, daemon=True).start()
     while True:
         conn, addr = server_socket.accept()
         # conn.settimeout(10)  # Set timeout for connection to 10 seconds.
