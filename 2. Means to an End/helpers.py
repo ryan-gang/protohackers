@@ -15,8 +15,8 @@ class PriceAnalyzer:
         # data from these lists to our datastore before computing the mean, this
         # flag denotes if its safe to compute mean at this point of time.
         # ie all lists data have been added to datastore.
-        self.timestamps = []
-        self.prices = []
+        self.timestamps: list[datetime.datetime] = []
+        self.prices: list[int] = []
 
     def append_row(self, seconds: int, price: int) -> None:
         """
@@ -41,14 +41,16 @@ class PriceAnalyzer:
         if not self.processed_all_rows:
             df = pd.DataFrame({"timestamp": self.timestamps, "price": self.prices})
             logging.info(f"Adding {len(df)} rows to datastore.")
-            self.datastore = pd.concat([self.datastore, df])
+            self.datastore = pd.concat([self.datastore, df])  # type: ignore
             self.__initialize__()
 
         mean_price = self.datastore[
             (self.datastore["timestamp"] >= start_timestamp)
             & (self.datastore["timestamp"] <= end_timestamp)
-        ]["price"].mean()
-        if pd.isna(mean_price):
+        ][
+            "price"
+        ].mean()  # type: ignore
+        if pd.isna(mean_price):  # type: ignore
             out = 0
         else:
             out = int(mean_price)
