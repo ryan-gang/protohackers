@@ -2,9 +2,10 @@ import json
 from typing import Optional
 
 
-def handle_request(request: bytes) -> bytes:
+def handle_request(request: bytearray) -> bytes:
+    request = request.strip()
     reqs = request.decode().split("\n")
-    responses = []
+    responses: list[str] = []
 
     for r in reqs:
         try:
@@ -30,7 +31,7 @@ def generate_response(prime: Optional[bool]) -> str:
     return json.dumps(resp)
 
 
-def valid(request: dict[str, str]) -> bool:
+def valid(request: dict[str, str | int | float]) -> bool:
     field1 = "method" in request
     value1 = request.get("method") == "isPrime"
     field2 = "number" in request
