@@ -16,7 +16,7 @@ logging.basicConfig(
 IP, PORT = "10.154.0.3", 9090
 
 
-class EchoServerProtocol(asyncio.Protocol):
+class PrimeServerProtocol(asyncio.Protocol):
     def __init__(self) -> None:
         self.requests: bytearray = bytearray()
         super().__init__()
@@ -44,7 +44,7 @@ class EchoServerProtocol(asyncio.Protocol):
 
 async def main():
     loop = asyncio.get_running_loop()
-    server = await loop.create_server(lambda: EchoServerProtocol(), IP, PORT)
+    server = await loop.create_server(lambda: PrimeServerProtocol(), IP, PORT)
     logging.info(f"Started Echo Server @ {IP}:{PORT}")
 
     async with server:
