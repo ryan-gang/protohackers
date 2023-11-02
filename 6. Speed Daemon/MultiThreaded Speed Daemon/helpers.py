@@ -142,7 +142,8 @@ class Sightings(object):
         return abs(round(speed, 2))
 
     def get_tickets(self, road: int, plate: str, timestamp: int, mile: int, speed_limit: int):
-        entries = self._get_closest_sightings(road, plate, timestamp)
+        # entries = self._get_closest_sightings(road, plate, timestamp)
+        entries = SIGHTINGS[road][plate]
         for sighting in entries:
             _timestamp, _mile = sighting
             if _timestamp < timestamp:
