@@ -51,10 +51,14 @@ async def handler(reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
 
 async def main():
     server = await asyncio.start_server(handler, IP, PORT)
-    logging.info(f"Started Echo Server @ {IP}:{PORT}")
+    logging.info(f"Started Chat Server @ {IP}:{PORT}")
 
     async with server:
         await server.serve_forever()
 
 
-asyncio.run(main())
+if __name__ == "__main__":
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        logging.critical("Interrupted, shutting down.")
