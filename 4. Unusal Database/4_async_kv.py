@@ -54,7 +54,7 @@ async def main():
         lambda: KVStoreServerProtocol(), (IP, PORT)
     )
 
-    logging.info(f"Started Echo Server @ {IP}:{PORT}")
+    logging.info(f"Started KV Server @ {IP}:{PORT}")
 
     try:
         await asyncio.sleep(3600)
@@ -64,4 +64,8 @@ async def main():
         transport.close()
 
 
-asyncio.run(main())
+if __name__ == "__main__":
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        logging.critical("Interrupted, shutting down.")
