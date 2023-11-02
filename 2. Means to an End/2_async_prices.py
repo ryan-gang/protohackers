@@ -62,10 +62,14 @@ class PricesServerProtocol(asyncio.Protocol):
 async def main():
     loop = asyncio.get_running_loop()
     server = await loop.create_server(lambda: PricesServerProtocol(), IP, PORT)
-    logging.info(f"Started Echo Server @ {IP}:{PORT}")
+    logging.info(f"Started Prices Server @ {IP}:{PORT}")
 
     async with server:
         await server.serve_forever()
 
 
-asyncio.run(main())
+if __name__ == "__main__":
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        logging.critical("Interrupted, shutting down.")
