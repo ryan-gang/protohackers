@@ -15,7 +15,7 @@ logging.basicConfig(
         " %(message)s"
     ),
     datefmt="%Y-%m-%d %H:%M:%S",
-    level="DEBUG",
+    level="ERROR",
     handlers=[logging.FileHandler("app.log"), logging.StreamHandler(sys.stdout)],
 )
 
@@ -32,10 +32,10 @@ async def handler(reader: StreamReader, writer: StreamWriter):
     serializer = Serializer()
     sock_handler = SocketHandler(reader, writer)
 
-    client_type_known = heartbeat_requested = False
     cam_client: Optional[Camera] = None
     disp_client: Optional[Dispatcher] = None
     heartbeat_requested: bool = False
+
     while 1:
         try:
             msg_code = await parser.parse_message_type(reader)
@@ -43,7 +43,7 @@ async def handler(reader: StreamReader, writer: StreamWriter):
             if msg_code == 32:  # Plate
                 plate, timestamp = await parser.parse_plate_data(reader)
                 logging.info(f"Message : Sighting @ {plate}/{timestamp}.")
-                if not client_type_known or cam_client is None:
+                if cam_client is None:
                     raise RuntimeError("Client unknown")
                 road, mile, speed_limit = cam_client.road, cam_client.mile, cam_client.limit
                 await sightings.get_tickets(road, plate, timestamp, mile, speed_limit)
@@ -61,19 +61,17 @@ async def handler(reader: StreamReader, writer: StreamWriter):
             elif msg_code == 128:
                 road, mile, limit = await parser.parse_iamcamera_data(reader)
                 logging.info(f"Message : Camera @ {road}/{mile}/{limit}")
-                if client_type_known:
+                if cam_client is not None:
                     raise RuntimeError("Client has already identified itself")
                 cam_client = Camera(road, mile, limit)
                 CAMERAS[road].append(cam_client)
-                client_type_known = True
 
             elif msg_code == 129:
                 roads = await parser.parse_iamdispatcher_data(reader)
                 logging.info(f"Message : Dispatcher @ {roads}")
-                if client_type_known:
+                if disp_client is not None:
                     raise RuntimeError("Client has already identified itself")
                 disp_client = Dispatcher(writer, roads)
-                client_type_known = True
                 await disp_client.dispatch()
 
             else:
@@ -85,8 +83,8 @@ async def handler(reader: StreamReader, writer: StreamWriter):
             return
         except RuntimeError as err:
             logging.error(err)
-            err = await serializer.serialize_error_data(msg="Unknown message type")
-            await sock_handler.write(err.decode())
+            error_msg = await serializer.serialize_error_data(msg=str(err))
+            await sock_handler.write(error_msg.decode())
             await sock_handler.close("Connection Reset by client", client_uuid)
             return
 

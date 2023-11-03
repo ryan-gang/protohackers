@@ -13,7 +13,7 @@ logging.basicConfig(
         " %(message)s"
     ),
     datefmt="%Y-%m-%d %H:%M:%S",
-    level="DEBUG",
+    level="ERROR",
     handlers=[logging.FileHandler("app.log"), logging.StreamHandler(sys.stdout)],
 )
 
@@ -87,7 +87,7 @@ class Dispatcher(object):
             for ticket in served:
                 TICKETS.remove(ticket)
 
-            await asyncio.sleep(5)
+            await asyncio.sleep(0)
 
 
 class Ticket(object):
@@ -112,7 +112,7 @@ class Ticket(object):
     async def print_ticket(self):
         return (
             f"Ticket for {self.plate} on {self.road} between {self.mile1, self.timestamp1} and"
-            f" {self.mile2, self.timestamp2} on {self.get_day1()} & {self.get_day2()}"
+            f" {self.mile2, self.timestamp2} on {await self.get_day1()} & {await self.get_day2()}"
         )
 
     async def get_day1(self) -> int:

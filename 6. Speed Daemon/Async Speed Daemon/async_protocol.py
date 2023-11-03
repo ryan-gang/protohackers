@@ -10,7 +10,7 @@ logging.basicConfig(
         " %(message)s"
     ),
     datefmt="%Y-%m-%d %H:%M:%S",
-    level="DEBUG",
+    level="ERROR",
     handlers=[logging.FileHandler("app.log"), logging.StreamHandler(sys.stdout)],
 )
 
@@ -159,12 +159,13 @@ class SocketHandler(object):
         self.writer = writer
         self.p = Parser()
 
-    async def write(self, data: str):
+    async def write(self, data: str, log: bool = True):
         # if not data.endswith("\n"):
         #     data += "\n"
         self.writer.write(data.encode())
-        logging.debug(f"Response : {data.strip()}")
-        logging.debug(f"Sent {len(data)} bytes.")
+        if log:
+            logging.debug(f"Response : {data.strip()}")
+            logging.debug(f"Sent {len(data)} bytes.")
         return await self.writer.drain()
 
     async def close(self, error_msg: str, conn: str):

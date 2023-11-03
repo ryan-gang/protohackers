@@ -11,7 +11,7 @@ logging.basicConfig(
         " %(message)s"
     ),
     datefmt="%Y-%m-%d %H:%M:%S",
-    level="DEBUG",
+    level="ERROR",
     handlers=[logging.FileHandler("app.log"), logging.StreamHandler(sys.stdout)],
 )
 
@@ -23,20 +23,15 @@ class Heartbeat(object):
         self.interval = interval  # second
         self.elapsed = 0
 
-    # async def send_heartbeat(self):
-    #     msg = await self.serializer.serialize_heartbeat_data()
-    #     while 1:
-    #         await self.sock_handler.write(msg.decode("utf-8"))
-    #         await asyncio.sleep(self.interval)
-
     async def heartbeat_task(self):
         msg = await self.serializer.serialize_heartbeat_data()
-        try:
-            while not self.sock_handler.reader.at_eof():
-                await asyncio.sleep(self.interval)
-                await self.sock_handler.write(msg.decode("utf-8"))
-        except ConnectionResetError:
-            pass
+        while not self.sock_handler.reader.at_eof():
+            await asyncio.sleep(self.interval)
+            try:
+                await self.sock_handler.write(msg.decode("utf-8"), log=False)
+            except (RuntimeError, ConnectionResetError):
+                await self.sock_handler.close("Stop heartbeat", "")
+                return
 
     async def send_heartbeat(self) -> None:
         if self.interval:
