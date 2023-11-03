@@ -10,7 +10,7 @@ logging.basicConfig(
         " %(message)s"
     ),
     datefmt="%Y-%m-%d %H:%M:%S",
-    level="ERROR",
+    level="INFO",
     handlers=[logging.FileHandler("app.log"), logging.StreamHandler(sys.stdout)],
 )
 
@@ -77,12 +77,9 @@ class Parser(object):
 
     # Type : 80
     async def parse_iamcamera_data(self, reader: StreamReader) -> tuple[int, int, int]:
-        # try:
         road = await self.parse_uint16(reader)
         mile = await self.parse_uint16(reader)
         limit = await self.parse_uint16(reader)
-        # except Exception as E:
-        #     raise ProtocolError(E)
         return (road, mile, limit)
 
     # Type : 81
@@ -160,16 +157,13 @@ class SocketHandler(object):
         self.p = Parser()
 
     async def write(self, data: str, log: bool = True):
-        # if not data.endswith("\n"):
-        #     data += "\n"
         self.writer.write(data.encode())
         if log:
             logging.debug(f"Response : {data.strip()}")
             logging.debug(f"Sent {len(data)} bytes.")
         return await self.writer.drain()
 
-    async def close(self, error_msg: str, conn: str):
-        # await self.write(error_msg)
+    async def close(self, conn: str):
         self.writer.write_eof()
         self.writer.close()
-        logging.info(f"Closed connection to client @ {conn}.")
+        logging.debug(f"Closed connection to client @ {conn}.")
