@@ -14,7 +14,7 @@ logging.basicConfig(
         " %(message)s"
     ),
     datefmt="%Y-%m-%d %H:%M:%S",
-    level="ERROR",
+    level="DEBUG",
     handlers=[logging.FileHandler("app.log"), logging.StreamHandler(sys.stdout)],
 )
 

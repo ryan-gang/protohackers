@@ -10,7 +10,7 @@ logging.basicConfig(
         " %(message)s"
     ),
     datefmt="%Y-%m-%d %H:%M:%S",
-    level="ERROR",
+    level="DEBUG",
     handlers=[logging.FileHandler("app.log"), logging.StreamHandler(sys.stdout)],
 )
 
@@ -58,7 +58,6 @@ class Parser(object):
         data = await reader.readexactly(bytes)
         array_fmt = fmt[0] + fmt[1] * array_length
         unpacked = struct.unpack(array_fmt, data)
-        print(data, unpacked, array_fmt)
         return list(map(int, unpacked))
 
     async def parse_message_type(self, reader: StreamReader) -> int:
@@ -161,35 +160,15 @@ class SocketHandler(object):
         self.p = Parser()
 
     async def write(self, data: str):
-        if not data.endswith("\n"):
-            data += "\n"
+        # if not data.endswith("\n"):
+        #     data += "\n"
         self.writer.write(data.encode())
         logging.debug(f"Response : {data.strip()}")
         logging.debug(f"Sent {len(data)} bytes.")
         return await self.writer.drain()
 
     async def close(self, error_msg: str, conn: str):
-        await self.write(error_msg)
+        # await self.write(error_msg)
         self.writer.write_eof()
         self.writer.close()
         logging.info(f"Closed connection to client @ {conn}.")
-
-    async def read(self):
-        try:
-            msg_code = await self.p.parse_message_type(self.reader)
-        except ConnectionRefusedError:
-            logging.error("Client Disconnected.")
-            return ""
-        if msg_code == 20:
-            _ = await self.p.parse_plate_data(self.reader)
-        elif msg_code == 40:
-            _ = await self.p.parse_wantheartbeat_data(self.reader)
-        elif msg_code == 80:
-            _ = await self.p.parse_iamcamera_data(self.reader)
-        elif msg_code == 81:
-            _ = await self.p.parse_iamdispatcher_data(self.reader)
-        else:
-            raise RuntimeError("Unexpected msg_type")
-
-        logging.debug(f"Type : {msg_code}, Data : {_}")
-        return msg_code, _

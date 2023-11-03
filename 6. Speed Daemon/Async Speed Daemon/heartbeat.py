@@ -11,7 +11,7 @@ logging.basicConfig(
         " %(message)s"
     ),
     datefmt="%Y-%m-%d %H:%M:%S",
-    level="ERROR",
+    level="DEBUG",
     handlers=[logging.FileHandler("app.log"), logging.StreamHandler(sys.stdout)],
 )
 
@@ -20,7 +20,7 @@ class Heartbeat(object):
     def __init__(self, reader: StreamReader, writer: StreamWriter, interval: float):
         self.serializer = Serializer()
         self.sock_handler = SocketHandler(reader, writer)
-        self.interval = interval // 10  # second
+        self.interval = interval  # second
         self.elapsed = 0
 
     async def send_heartbeat(self):

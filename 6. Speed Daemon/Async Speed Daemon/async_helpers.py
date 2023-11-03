@@ -13,7 +13,7 @@ logging.basicConfig(
         " %(message)s"
     ),
     datefmt="%Y-%m-%d %H:%M:%S",
-    level="ERROR",
+    level="DEBUG",
     handlers=[logging.FileHandler("app.log"), logging.StreamHandler(sys.stdout)],
 )
 
@@ -70,15 +70,22 @@ class Dispatcher(object):
 
     async def dispatch(self):
         while 1:
-            sent: set[Ticket] = set()
+            served: set[Ticket] = set()
             for ticket in TICKETS:
-                await self.dispatch_ticket(ticket)
-                sent.add(ticket)
+                day1, day2, road = ticket.get_day1(), ticket.get_day2(), ticket.road
+                if day1 in TICKETS_SERVED[ticket.plate] or day2 in TICKETS_SERVED[ticket.plate]:
+                    served.add(ticket)
+                    continue
+                if road in self.roads:
+                    served.add(ticket)
+                    TICKETS_SERVED[ticket.plate].add(ticket.get_day1())
+                    TICKETS_SERVED[ticket.plate].add(ticket.get_day2())
 
-            for ticket in sent:
+                await self.dispatch_ticket(ticket)
+                served.add(ticket)
+
+            for ticket in served:
                 TICKETS.remove(ticket)
-                TICKETS_SERVED[ticket.plate].add(ticket.get_day1())
-                TICKETS_SERVED[ticket.plate].add(ticket.get_day2())
 
             await asyncio.sleep(5)
 

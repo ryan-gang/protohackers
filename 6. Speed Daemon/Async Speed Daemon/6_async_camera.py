@@ -15,7 +15,7 @@ logging.basicConfig(
         " %(message)s"
     ),
     datefmt="%Y-%m-%d %H:%M:%S",
-    level="ERROR",
+    level="DEBUG",
     handlers=[logging.FileHandler("app.log"), logging.StreamHandler(sys.stdout)],
 )
 
@@ -24,8 +24,10 @@ sightings = Sightings()
 
 
 async def handler(reader: StreamReader, writer: StreamWriter):
-    logging.info(f"Connected to client @ {writer.get_extra_info('peername')}")
     client_uuid = str(uuid.uuid4())
+    logging.info(
+        f"Connected to client @ {writer.get_extra_info('peername')}, referred to as {client_uuid}"
+    )
     parser = Parser()
     serializer = Serializer()
     sock_handler = SocketHandler(reader, writer)
@@ -42,39 +44,36 @@ async def handler(reader: StreamReader, writer: StreamWriter):
                 logging.error("Client Disconnected.")
                 return
 
-            if msg_code == 20:  # Plate
-                _ = await parser.parse_plate_data(reader)
-                plate, timestamp = _
+            if msg_code == 32:  # Plate
+                plate, timestamp = await parser.parse_plate_data(reader)
+                logging.info(f"Message : Plate @ {plate}/{timestamp}.")
                 if not client_type_known or cam_client is None:
                     raise RuntimeError("Client unknown")
                 road, mile, speed_limit = cam_client.road, cam_client.mile, cam_client.limit
                 sightings.get_tickets(road, plate, timestamp, mile, speed_limit)
                 sightings.add_sighting(road, plate, timestamp, mile)
 
-            elif msg_code == 40:  # Want Heartbeat
-                _ = await parser.parse_wantheartbeat_data(reader)
-                interval = _
-                logging.info(f"Message : WantHeartBeat @ {interval/10} seconds.")
+            elif msg_code == 64:  # Want Heartbeat
+                interval = await parser.parse_wantheartbeat_data(reader)
+                logging.info(f"Message : WantHeartBeat @ {interval} deciseconds.")
                 if heartbeat_requested:
                     raise RuntimeError("Heartbeat already requested")
                 if interval > 0:
-                    await Heartbeat(reader, writer, interval // 10).send_heartbeat()
+                    await Heartbeat(reader, writer, interval / 10).send_heartbeat()
                 heartbeat_requested = True
 
-            elif msg_code == 80:
-                _ = await parser.parse_iamcamera_data(reader)
-                road, mile, limit = _
-                logging.debug(f"Message : Camera @ {road}/{mile}/{limit}")
+            elif msg_code == 128:
+                road, mile, limit = await parser.parse_iamcamera_data(reader)
+                logging.info(f"Message : Camera @ {road}/{mile}/{limit}")
                 if client_type_known:
                     raise RuntimeError("Client has already identified itself")
                 cam_client = Camera(road, mile, limit)
                 CAMERAS[road].append(cam_client)
                 client_type_known = True
 
-            elif msg_code == 81:
-                _ = await parser.parse_iamdispatcher_data(reader)
-                roads = _
-                logging.debug(f"Message : Dispatcher @ {roads}")
+            elif msg_code == 129:
+                roads = await parser.parse_iamdispatcher_data(reader)
+                logging.info(f"Message : Dispatcher @ {roads}")
                 if client_type_known:
                     raise RuntimeError("Client has already identified itself")
                 disp_client = Dispatcher(writer, roads)
@@ -85,7 +84,6 @@ async def handler(reader: StreamReader, writer: StreamWriter):
 
             else:
                 raise RuntimeError("Unexpected msg_type")
-            logging.debug(f"Req : {msg_code} : Data : {_}")
 
         except (ConnectionResetError, OSError) as err:
             logging.error(err)
@@ -101,7 +99,7 @@ async def handler(reader: StreamReader, writer: StreamWriter):
 
 async def main():
     server = await asyncio.start_server(handler, IP, PORT)
-    logging.info(f"Started MITM Server @ {IP}:{PORT}")
+    logging.info(f"Started Camera Server @ {IP}:{PORT}")
 
     async with server:
         await server.serve_forever()
