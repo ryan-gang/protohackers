@@ -5,7 +5,7 @@ import uuid
 from asyncio import StreamReader, StreamWriter
 from typing import Optional
 
-from async_helpers import CAMERAS, DISPATCHERS, Camera, Dispatcher, Sightings
+from async_helpers import CAMERAS, Camera, Dispatcher, Sightings
 from async_protocol import Parser, Serializer, SocketHandler
 from heartbeat import Heartbeat
 
@@ -38,20 +38,16 @@ async def handler(reader: StreamReader, writer: StreamWriter):
     heartbeat_requested: bool = False
     while 1:
         try:
-            try:
-                msg_code = await parser.parse_message_type(reader)
-            except ConnectionRefusedError:
-                logging.error("Client Disconnected.")
-                return
+            msg_code = await parser.parse_message_type(reader)
 
             if msg_code == 32:  # Plate
                 plate, timestamp = await parser.parse_plate_data(reader)
-                logging.info(f"Message : Plate @ {plate}/{timestamp}.")
+                logging.info(f"Message : Sighting @ {plate}/{timestamp}.")
                 if not client_type_known or cam_client is None:
                     raise RuntimeError("Client unknown")
                 road, mile, speed_limit = cam_client.road, cam_client.mile, cam_client.limit
-                sightings.get_tickets(road, plate, timestamp, mile, speed_limit)
-                sightings.add_sighting(road, plate, timestamp, mile)
+                await sightings.get_tickets(road, plate, timestamp, mile, speed_limit)
+                await sightings.add_sighting(road, plate, timestamp, mile)
 
             elif msg_code == 64:  # Want Heartbeat
                 interval = await parser.parse_wantheartbeat_data(reader)
@@ -77,15 +73,13 @@ async def handler(reader: StreamReader, writer: StreamWriter):
                 if client_type_known:
                     raise RuntimeError("Client has already identified itself")
                 disp_client = Dispatcher(writer, roads)
-                for road in roads:
-                    DISPATCHERS[road].append(disp_client)
                 client_type_known = True
                 await disp_client.dispatch()
 
             else:
                 raise RuntimeError("Unexpected msg_type")
 
-        except (ConnectionResetError, OSError) as err:
+        except (ConnectionResetError, OSError, asyncio.exceptions.IncompleteReadError) as err:
             logging.error(err)
             await sock_handler.close("Connection Reset by client", client_uuid)
             return

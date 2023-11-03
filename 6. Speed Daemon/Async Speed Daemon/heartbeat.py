@@ -23,8 +23,21 @@ class Heartbeat(object):
         self.interval = interval  # second
         self.elapsed = 0
 
-    async def send_heartbeat(self):
+    # async def send_heartbeat(self):
+    #     msg = await self.serializer.serialize_heartbeat_data()
+    #     while 1:
+    #         await self.sock_handler.write(msg.decode("utf-8"))
+    #         await asyncio.sleep(self.interval)
+
+    async def heartbeat_task(self):
         msg = await self.serializer.serialize_heartbeat_data()
-        while 1:
-            await self.sock_handler.write(msg.decode("utf-8"))
-            await asyncio.sleep(self.interval)
+        try:
+            while not self.sock_handler.reader.at_eof():
+                await asyncio.sleep(self.interval)
+                await self.sock_handler.write(msg.decode("utf-8"))
+        except ConnectionResetError:
+            pass
+
+    async def send_heartbeat(self) -> None:
+        if self.interval:
+            asyncio.create_task(self.heartbeat_task())
