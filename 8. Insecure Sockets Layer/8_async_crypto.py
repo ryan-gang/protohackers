@@ -4,7 +4,7 @@ import sys
 import uuid
 from asyncio import StreamReader, StreamWriter
 
-from async_helpers import Crypto, prioritise
+from async_helpers import Crypto, prioritise, readline
 
 logging.basicConfig(
     format=(
@@ -30,8 +30,8 @@ async def handler(reader: StreamReader, writer: StreamWriter):
 
     encode_byte_counter = decode_byte_counter = 0
     while 1:
-        encoded_data = await reader.read(n=5000)
-        if encoded_data == b"":
+        encoded_data = await readline(reader)
+        if encoded_data == b"" or await crypto.check_for_no_op_cipher():
             writer.write_eof()
             writer.close()
             logging.debug(f"Closed connection to client @ {client_uuid}.")

@@ -1,7 +1,9 @@
+from asyncio import StreamReader
 import logging
 from heapq import heappop, heappush
 import sys
 import re
+import os
 
 logging.basicConfig(
     format=(
@@ -15,15 +17,17 @@ logging.basicConfig(
 
 
 async def prioritise(toys: str) -> str:
-    heap: list[tuple[int, str]] = []
-    items = toys.split(",")
-    for item in items:
-        match = re.match("([0-9]*)x .*", item)
-        if match:
-            val = int(match.groups()[0])
-            heappush(heap, (-val, item))
+    out = ""
+    for req in toys.split("\n"):
+        heap: list[tuple[int, str]] = []
+        for item in req.split(","):
+            match = re.match("([0-9]*)x .*", item)
+            if match:
+                val = int(match.groups()[0])
+                heappush(heap, (-val, item))
+        out += heappop(heap)[1] + "\n"
 
-    return heappop(heap)[1] + "\n"
+    return out
 
 
 class Crypto(object):
@@ -146,3 +150,21 @@ class Crypto(object):
         for bit in b:
             print(hex(bit).replace("0x", ""), end=" ")
         print()
+
+    async def check_for_no_op_cipher(self) -> bool:
+        data = bytearray(os.urandom(100))
+        old_data = data[::]
+        encoded_data, _ = await self.encode(data, 0)
+        return encoded_data == old_data
+
+
+async def readline(reader: StreamReader) -> bytes:
+    line = bytearray()
+    while True:
+        byte = await reader.readexactly(1)
+        if byte == b"":
+            return b""
+        if byte == b"\n":
+            break
+        line += byte
+    return bytes(line)
