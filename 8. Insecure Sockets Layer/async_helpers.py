@@ -13,8 +13,9 @@ logging.basicConfig(
 
 
 class Crypto(object):
-    def __init__(self) -> None:
-        pass
+    def __init__(self, schema: bytes) -> None:
+        self.encode_schema: list[list[int]] = self._parse_schema(schema)
+        self.decode_schema = self.encode_schema[::-1]
 
     def _parse_schema(self, schema: bytes) -> list[list[int]]:
         """
@@ -77,14 +78,12 @@ class Crypto(object):
             n += 1
         return b
 
-    async def encode(
-        self, data: bytearray, schema: bytes, byte_counter: int
-    ) -> tuple[bytearray, int]:
+    async def encode(self, data: bytearray, byte_counter: int) -> tuple[bytearray, int]:
         """
         Given the data, schema and byte_counter encodes the data and returns the
         modified data to be sent to client.
         """
-        for action in self._parse_schema(schema):
+        for action in self.encode_schema:
             match action:
                 case [0]:
                     pass
@@ -104,14 +103,12 @@ class Crypto(object):
                     pass
         return (data, byte_counter + len(data))
 
-    async def decode(
-        self, data: bytearray, schema: bytes, byte_counter: int
-    ) -> tuple[bytearray, int]:
+    async def decode(self, data: bytearray, byte_counter: int) -> tuple[bytearray, int]:
         """
         Given the data, schema and byte_counter decodes the data and returns the
         original data to be processed.
         """
-        for action in self._parse_schema(schema)[::-1]:
+        for action in self.decode_schema:
             match action:
                 case [0]:
                     pass
