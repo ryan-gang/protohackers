@@ -1,12 +1,10 @@
 import asyncio
 import logging
-import re
 import sys
 import uuid
 from asyncio import StreamReader, StreamWriter
-from heapq import heappop, heappush
 
-from async_helpers import Crypto
+from async_helpers import Crypto, prioritise
 
 logging.basicConfig(
     format=(
@@ -14,23 +12,11 @@ logging.basicConfig(
         " %(message)s"
     ),
     datefmt="%Y-%m-%d %H:%M:%S",
-    level="INFO",
+    level="DEBUG",
     handlers=[logging.FileHandler("app.log"), logging.StreamHandler(sys.stdout)],
 )
 
 IP, PORT = "10.128.0.2", 9090
-
-
-async def prioritise(toys: str) -> str:
-    heap: list[tuple[int, str]] = []
-    items = toys.split(",")
-    for item in items:
-        match = re.match("([0-9]*)x .*", item)
-        if match:
-            val = int(match.groups()[0])
-            heappush(heap, (-val, item))
-
-    return heappop(heap)[1]
 
 
 async def handler(reader: StreamReader, writer: StreamWriter):
@@ -44,20 +30,29 @@ async def handler(reader: StreamReader, writer: StreamWriter):
 
     encode_byte_counter = decode_byte_counter = 0
     while 1:
-        encoded_data = await reader.readline()
+        encoded_data = await reader.read(n=5000)
+        if encoded_data == b"":
+            writer.write_eof()
+            writer.close()
+            logging.debug(f"Closed connection to client @ {client_uuid}.")
+            return
+
         logging.info(f"Encoded req : {encoded_data.hex()}")
         req, byte_counter = await crypto.decode(bytearray(encoded_data), encode_byte_counter)
         encode_byte_counter += byte_counter
         data = req.decode("utf-8").strip()
+        logging.info(f"Decoded req : {data}")
 
         output = await prioritise(data)
-        output = bytearray(output.encode())
+        logging.info(f"Decoded res : {output}")
+        output = bytearray(output.encode("utf-8"))
         response, byte_counter = await crypto.encode(output, decode_byte_counter)
+        logging.info(f"Encoded res : {response.hex()}")
         decode_byte_counter += byte_counter
-        crypto.print_hex(response)
 
         writer.write(response)
         await writer.drain()
+        logging.debug(f"Sent {len(response)} bytes to {client_uuid}")
     return
 
 

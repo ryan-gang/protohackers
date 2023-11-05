@@ -1,5 +1,7 @@
 import logging
+from heapq import heappop, heappush
 import sys
+import re
 
 logging.basicConfig(
     format=(
@@ -7,9 +9,21 @@ logging.basicConfig(
         " %(message)s"
     ),
     datefmt="%Y-%m-%d %H:%M:%S",
-    level="INFO",
+    level="DEBUG",
     handlers=[logging.FileHandler("app.log"), logging.StreamHandler(sys.stdout)],
 )
+
+
+async def prioritise(toys: str) -> str:
+    heap: list[tuple[int, str]] = []
+    items = toys.split(",")
+    for item in items:
+        match = re.match("([0-9]*)x .*", item)
+        if match:
+            val = int(match.groups()[0])
+            heappush(heap, (-val, item))
+
+    return heappop(heap)[1] + "\n"
 
 
 class Crypto(object):
@@ -44,13 +58,13 @@ class Crypto(object):
 
     async def _xor(self, b: bytearray, n: int) -> bytearray:
         for idx, val in enumerate(b):
-            b[idx] = val ^ n
+            b[idx] = (val ^ n) % 256
         return b
 
     async def _xor_with_pos(self, b: bytearray, start: int) -> bytearray:
         n = start
         for idx, val in enumerate(b):
-            b[idx] = val ^ n
+            b[idx] = (val ^ n) % 256
             n += 1
         return b
 
