@@ -1,9 +1,10 @@
-from asyncio import StreamReader
 import logging
-from heapq import heappop, heappush
-import sys
-import re
 import os
+import re
+import sys
+from asyncio import StreamReader
+from heapq import heappop, heappush
+from typing import Callable
 
 logging.basicConfig(
     format=(
@@ -17,20 +18,148 @@ logging.basicConfig(
 
 
 async def prioritise(toys: str) -> str:
-    out = ""
-    for req in toys.split("\n"):
-        heap: list[tuple[int, str]] = []
-        for item in req.split(","):
-            match = re.match("([0-9]*)x .*", item)
-            if match:
-                val = int(match.groups()[0])
-                heappush(heap, (-val, item))
-        out += heappop(heap)[1] + "\n"
-
-    return out
+    heap: list[tuple[int, str]] = []
+    for toy in toys.split(","):
+        match = re.match("([0-9]*)x .*", toy)
+        if match:
+            val = int(match.groups()[0])
+            heappush(heap, (-val, toy))
+    return heappop(heap)[1] + "\n"
 
 
 class Crypto(object):
+    def __init__(self, schema: bytes) -> None:
+        # Pass schema while instantiating object, all subsequent calls will use
+        # internal representation for crypto.
+        self.ENC = {
+            1: self._reversebits,
+            2: self._xor,
+            3: self._xor_with_pos,
+            4: self._add,
+            5: self._add_with_pos,
+        }
+        self.DEC = {
+            1: self._reversebits,
+            2: self._xor,
+            3: self._xor_with_pos,
+            4: self._sub,
+            5: self._sub_with_pos,
+        }
+        self.encode_schema: list[
+            tuple[Callable[[int, int, int], int], int]
+        ] = self._parse_schema_enc(schema)
+        self.decode_schema: list[
+            tuple[Callable[[int, int, int], int], int]
+        ] = self._parse_schema_dec(schema)
+
+    def _parse_schema_enc(self, schema: bytes) -> list[tuple[Callable[[int, int, int], int], int]]:
+        """
+        Break the bytes object into groups of ops.
+        Makes the encode and decode method concise.
+        Solves the schema reversal problem in decode.
+        """
+        groups: list[tuple[Callable[[int, int, int], int], int]] = []
+        idx = 0
+        while idx < len(schema):
+            bit = schema[idx]
+            if bit == 0:
+                idx += 1
+                continue
+            if bit == 2 or bit == 4:
+                val = schema[idx + 1]
+                group = (self.ENC[bit], val)
+                idx += 2
+            else:
+                group = (self.ENC[bit], 0)
+                idx += 1
+            groups.append(group)
+
+        return groups
+
+    def _parse_schema_dec(self, schema: bytes) -> list[tuple[Callable[[int, int, int], int], int]]:
+        """
+        Break the bytes object into groups of ops.
+        Makes the encode and decode method concise.
+        """
+        groups: list[tuple[Callable[[int, int, int], int], int]] = []
+        idx = 0
+        while idx < len(schema):
+            bit = schema[idx]
+            if bit == 0:
+                idx += 1
+                continue
+            if bit == 2 or bit == 4:
+                val = schema[idx + 1]
+                group = (self.DEC[bit], val)
+                idx += 2
+            else:
+                group = (self.DEC[bit], 0)
+                idx += 1
+            groups.append(group)
+
+        return groups[::-1]
+
+    def _reversebits(self, b: int, n: int, byte_counter: int) -> int:
+        return int("{:08b}".format(b)[::-1], 2)
+
+    def _xor(self, b: int, n: int, byte_counter: int) -> int:
+        return (b ^ n) & 255
+
+    def _xor_with_pos(self, b: int, n: int, byte_counter: int) -> int:
+        return self._xor(b, byte_counter, n)
+
+    def _add(self, b: int, n: int, byte_counter: int) -> int:
+        return (b + n) & 255
+
+    def _add_with_pos(self, b: int, n: int, byte_counter: int) -> int:
+        return self._add(b, byte_counter, n)
+
+    def _sub(self, b: int, n: int, byte_counter: int) -> int:
+        return (b - n) & 255
+
+    def _sub_with_pos(self, b: int, n: int, byte_counter: int) -> int:
+        return self._sub(b, byte_counter, n)
+
+    def decode(self, data: int, byte_counter: int) -> int:
+        for group in self.decode_schema:
+            func, param = group
+            # print(f"Running {func} with params : {data}, {param}, {byte_counter}")
+            data = func(data, param, byte_counter)
+            # print(f"Output is {data}")
+        return data
+
+    def encode(self, str_data: str, byte_counter: int) -> int:
+        data = ord(str_data)
+        for group in self.encode_schema:
+            func, param = group
+            # print(f"Running {func} with params : {data}, {param}, {byte_counter}")
+            data = func(data, param, byte_counter)
+            # print(f"Output is {data}")
+        return data
+
+    def print_hex(self, b: bytearray) -> None:
+        for bit in b:
+            print(hex(bit).replace("0x", ""), end=" ")
+        print()
+
+    def check_for_no_op_cipher(self) -> bool:
+        data = os.urandom(100)
+        encoded = b""
+        for idx, val in enumerate(data):
+            encoded += int.to_bytes(self.decode(val, idx))
+
+        return data == encoded
+
+
+class BatchedCrypto(object):
+    """
+    Batched Crypto will not work for this problem. We need to decrypt the
+    request byte-wise, else we won't know when the server has sent the newline
+    character, which would signify the end of the request in this case. This has
+    to deprecated in favor of another Crypto implementation decryptin every byte
+    just after reading it, and based on that it would continue or return.
+    """
+
     def __init__(self, schema: bytes) -> None:
         self.encode_schema: list[list[int]] = self._parse_schema(schema)
         self.decode_schema = self.encode_schema[::-1]
@@ -161,10 +290,8 @@ class Crypto(object):
 async def readline(reader: StreamReader) -> bytes:
     line = bytearray()
     while True:
-        byte = await reader.readexactly(1)
-        if byte == b"":
-            return b""
-        if byte == b"\n":
+        byte = (await reader.readexactly(1))[0]
+        if byte == 10:
             break
-        line += byte
+        line.append(byte)
     return bytes(line)
