@@ -12,13 +12,14 @@ logging.basicConfig(
         " %(message)s"
     ),
     datefmt="%Y-%m-%d %H:%M:%S",
-    level="DEBUG",
+    level="INFO",
     handlers=[logging.FileHandler("app.log"), logging.StreamHandler(sys.stdout)],
 )
 
 
 async def prioritise(toys: str) -> str:
     heap: list[tuple[int, str]] = []
+    toys = toys.strip()
     for toy in toys.split(","):
         match = re.match("([0-9]*)x .*", toy)
         if match:
@@ -142,149 +143,13 @@ class Crypto(object):
             print(hex(bit).replace("0x", ""), end=" ")
         print()
 
-    def check_for_no_op_cipher(self) -> bool:
+    def no_op_cipher(self) -> bool:
         data = os.urandom(100)
         encoded = b""
         for idx, val in enumerate(data):
             encoded += int.to_bytes(self.decode(val, idx))
 
         return data == encoded
-
-
-class BatchedCrypto(object):
-    """
-    Batched Crypto will not work for this problem. We need to decrypt the
-    request byte-wise, else we won't know when the server has sent the newline
-    character, which would signify the end of the request in this case. This has
-    to deprecated in favor of another Crypto implementation decryptin every byte
-    just after reading it, and based on that it would continue or return.
-    """
-
-    def __init__(self, schema: bytes) -> None:
-        self.encode_schema: list[list[int]] = self._parse_schema(schema)
-        self.decode_schema = self.encode_schema[::-1]
-
-    def _parse_schema(self, schema: bytes) -> list[list[int]]:
-        """
-        Break the bytes object into groups of ops.
-        Makes the encode and decode method concise.
-        Solves the schema reversal problem in decode.
-        """
-        groups: list[list[int]] = []
-        idx = 0
-        while idx < len(schema):
-            bit = schema[idx]
-            if bit == 2 or bit == 4:
-                group = [bit, schema[idx + 1]]
-                idx += 2
-            else:
-                group = [bit]
-                idx += 1
-            groups.append(group)
-
-        return groups
-
-    async def _reversebits(self, b: bytearray) -> bytearray:
-        for idx, val in enumerate(b):
-            b[idx] = int("{:08b}".format(val)[::-1], 2)
-        return b
-
-    async def _xor(self, b: bytearray, n: int) -> bytearray:
-        for idx, val in enumerate(b):
-            b[idx] = (val ^ n) % 256
-        return b
-
-    async def _xor_with_pos(self, b: bytearray, start: int) -> bytearray:
-        n = start
-        for idx, val in enumerate(b):
-            b[idx] = (val ^ n) % 256
-            n += 1
-        return b
-
-    async def _add(self, b: bytearray, n: int) -> bytearray:
-        for idx, val in enumerate(b):
-            b[idx] = (val + n) % 256
-        return b
-
-    async def _add_with_pos(self, b: bytearray, start: int) -> bytearray:
-        n = start
-        for idx, val in enumerate(b):
-            b[idx] = (val + n) % 256
-            n += 1
-        return b
-
-    async def _sub(self, b: bytearray, n: int) -> bytearray:
-        for idx, val in enumerate(b):
-            b[idx] = (val - n) % 256
-        return b
-
-    async def _sub_with_pos(self, b: bytearray, start: int) -> bytearray:
-        n = start
-        for idx, val in enumerate(b):
-            b[idx] = (val - n) % 256
-            n += 1
-        return b
-
-    async def encode(self, data: bytearray, byte_counter: int) -> tuple[bytearray, int]:
-        """
-        Given the data, schema and byte_counter encodes the data and returns the
-        modified data to be sent to client.
-        """
-        for action in self.encode_schema:
-            match action:
-                case [0]:
-                    pass
-                case [1]:
-                    data = await self._reversebits(data)
-                case [2, *val]:
-                    xor_val = val[0]
-                    data = await self._xor(data, n=xor_val)
-                case [3]:
-                    data = await self._xor_with_pos(data, start=byte_counter)
-                case [4, *val]:
-                    add_val = val[0]
-                    data = await self._add(data, n=add_val)
-                case [5]:
-                    data = await self._add_with_pos(data, start=byte_counter)
-                case _:
-                    pass
-        return (data, byte_counter + len(data))
-
-    async def decode(self, data: bytearray, byte_counter: int) -> tuple[bytearray, int]:
-        """
-        Given the data, schema and byte_counter decodes the data and returns the
-        original data to be processed.
-        """
-        for action in self.decode_schema:
-            match action:
-                case [0]:
-                    pass
-                case [1]:
-                    data = await self._reversebits(data)
-                case [2, *val]:
-                    xor_val = val[0]
-                    data = await self._xor(data, n=xor_val)
-                case [3]:
-                    data = await self._xor_with_pos(data, start=byte_counter)
-                case [4, *val]:
-                    add_val = val[0]
-                    data = await self._sub(data, n=add_val)
-                case [5]:
-                    data = await self._sub_with_pos(data, start=byte_counter)
-                case _:
-                    pass
-        return (data, byte_counter + len(data))
-
-    def print_hex(self, b: bytearray) -> None:
-        for bit in b:
-            print(hex(bit).replace("0x", ""), end=" ")
-        print()
-
-    async def check_for_no_op_cipher(self) -> bool:
-        data = bytearray(os.urandom(100))
-        old_data = data[::]
-        encoded_data, _ = await self.encode(data, 0)
-        return encoded_data == old_data
 
 
 class Reader(object):
@@ -299,7 +164,6 @@ class Reader(object):
             byte = await self.reader.readexactly(1)
             if byte == b"":
                 raise RuntimeError("Connection closed by client")
-
             code = self.crypto.decode(byte[0], self.byte_counter)
             char = chr(code)
             self.byte_counter += 1
@@ -315,7 +179,7 @@ class Writer(object):
         self.crypto = crypto
         self.byte_counter = 0
 
-    async def writeline(self, data: str):
+    async def writeline(self, data: str, client: str):
         data = data + "\n"
         out = bytearray()
         for idx, val in enumerate(data):
@@ -324,11 +188,12 @@ class Writer(object):
 
         self.byte_counter += len(data)
         self.writer.write(out)
+        logging.info(f"Sent {out.hex()} : {len(data)} bytes to {client}")
         await self.writer.drain()
         return
 
     async def close(self, client_uuid: str):
         self.writer.write_eof()
         self.writer.close()
-        logging.debug(f"Closed connection to client @ {client_uuid}.")
+        logging.info(f"Closed connection to client @ {client_uuid}.")
         return
