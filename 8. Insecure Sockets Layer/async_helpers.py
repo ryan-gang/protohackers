@@ -2,7 +2,7 @@ import logging
 import os
 import re
 import sys
-from asyncio import StreamReader
+from asyncio import StreamReader, StreamWriter
 from heapq import heappop, heappush
 from typing import Callable
 
@@ -24,7 +24,7 @@ async def prioritise(toys: str) -> str:
         if match:
             val = int(match.groups()[0])
             heappush(heap, (-val, toy))
-    return heappop(heap)[1] + "\n"
+    return heappop(heap)[1]
 
 
 class Crypto(object):
@@ -287,11 +287,48 @@ class BatchedCrypto(object):
         return encoded_data == old_data
 
 
-async def readline(reader: StreamReader) -> bytes:
-    line = bytearray()
-    while True:
-        byte = (await reader.readexactly(1))[0]
-        if byte == 10:
-            break
-        line.append(byte)
-    return bytes(line)
+class Reader(object):
+    def __init__(self, reader: StreamReader, crypto: Crypto) -> None:
+        self.reader = reader
+        self.crypto = crypto
+        self.byte_counter = 0
+
+    async def readline(self) -> str:
+        line: list[str] = []
+        while True:
+            byte = await self.reader.readexactly(1)
+            if byte == b"":
+                raise RuntimeError("Connection closed by client")
+
+            code = self.crypto.decode(byte[0], self.byte_counter)
+            char = chr(code)
+            self.byte_counter += 1
+            line.append(char)
+            if char == "\n":
+                break
+        return "".join(line)
+
+
+class Writer(object):
+    def __init__(self, writer: StreamWriter, crypto: Crypto) -> None:
+        self.writer = writer
+        self.crypto = crypto
+        self.byte_counter = 0
+
+    async def writeline(self, data: str):
+        data = data + "\n"
+        out = bytearray()
+        for idx, val in enumerate(data):
+            index = idx + self.byte_counter
+            out.append(self.crypto.encode(val, index))
+
+        self.byte_counter += len(data)
+        self.writer.write(out)
+        await self.writer.drain()
+        return
+
+    async def close(self, client_uuid: str):
+        self.writer.write_eof()
+        self.writer.close()
+        logging.debug(f"Closed connection to client @ {client_uuid}.")
+        return
