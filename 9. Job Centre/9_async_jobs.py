@@ -24,6 +24,7 @@ IP, PORT = "10.128.0.2", 9090
 ID = Identifier()
 DATASTORE: dict[int, Job] = {}
 QUEUES: dict[str, list[tuple[int, int]]] = defaultdict(list)
+DELETED_JOBS: set[int] = set()
 
 
 async def handler(stream_reader: StreamReader, stream_writer: StreamWriter):
@@ -53,21 +54,28 @@ async def handler(stream_reader: StreamReader, stream_writer: StreamWriter):
                 curr_queue = QUEUES[queue_str]
                 heappush(curr_queue, (-priority, job_id))
 
+                logging.info(f"PUT : {job_id}")
                 response = {"status": "ok", "id": job_id}
 
             elif type == "get":
                 queues = data["queues"]
-                wait_acceptable = data["wait"]
+                if "wait" in data:
+                    wait_acceptable = bool(data["wait"])
+                else:
+                    wait_acceptable = False
                 available_jobs: list[tuple[int, int, str]] = []
 
                 while 1:
                     for queue in queues:
                         queue_str = dumps(queue)
                         curr_queue = QUEUES[queue_str]
-                        if len(curr_queue) > 0:
+                        while len(curr_queue) > 0:
                             priority, job_id = heappop(curr_queue)
+                            if job_id in DELETED_JOBS:
+                                continue
                             tup = (priority, job_id, queue_str)
                             heappush(available_jobs, tup)
+                            break
 
                     if len(available_jobs) > 0:
                         final_job = heappop(available_jobs)
@@ -99,9 +107,12 @@ async def handler(stream_reader: StreamReader, stream_writer: StreamWriter):
                     client_working_on = 0
                 if job_id in DATASTORE:
                     DATASTORE.pop(job_id)
-                    # Also handle removing from job queue, directly or indirectly
+                    DELETED_JOBS.add(job_id)
+                    # Handle jobs already queued in "get" method
+                    logging.info(f"DELETE : {job_id}")
                     response = {"status": "ok"}
                 else:
+                    logging.info(f"DELETE FAILED : {job_id}")
                     response = {"status": "no-job"}
 
             elif type == "abort":
@@ -112,10 +123,13 @@ async def handler(stream_reader: StreamReader, stream_writer: StreamWriter):
                         queue, priority = job_object.queue, job_object.priority
                         curr_queue = QUEUES[queue]
                         heappush(curr_queue, (-priority, job_id))
+
+                        logging.info(f"ABORT : {job_id}")
                         response = {"status": "ok"}
                     else:
                         raise RuntimeError("Invalid abort request from client")
                 else:
+                    logging.info(f"ABORT FAILED : {job_id}")
                     response = {"status": "no-job"}
 
             else:
@@ -129,8 +143,8 @@ async def handler(stream_reader: StreamReader, stream_writer: StreamWriter):
             logging.error(err)
             response = {"status": "error", "error": err}
             await writer.writeline(dumps(response), client_uuid)
-        except asyncio.exceptions.IncompleteReadError as err:
-            logging.error(f"Client disconnected : {err}")
+        except (asyncio.exceptions.IncompleteReadError, ConnectionResetError):
+            logging.error(f"Client {client_uuid} disconnected.")
             await writer.close(client_uuid)
             if (job_id := client_working_on) != 0:
                 if job_id in DATASTORE:
