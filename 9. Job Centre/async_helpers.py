@@ -10,13 +10,15 @@ logging.basicConfig(
         " %(message)s"
     ),
     datefmt="%Y-%m-%d %H:%M:%S",
-    level="DEBUG",
+    level="INFO",
     handlers=[logging.FileHandler("app.log"), logging.StreamHandler(sys.stdout)],
 )
 
 
 class Job(object):
-    def __init__(self, id: int, job_data: str, priority: int, queue: str, status: int) -> None:
+    def __init__(
+        self, id: int, job_data: str, priority: int, queue: str, status: int
+    ) -> None:
         self.id = id
         self.job_data = job_data
         self.priority = priority
@@ -63,14 +65,14 @@ class Writer(object):
         data = data + "\n"
         out = data.encode("utf-8")
         self.writer.write(out)
-        logging.info(f"Sent {out.hex()} : {len(data)} bytes to {client}")
+        logging.debug(f"Sent {out.hex()} : {len(data)} bytes to {client}")
         await self.writer.drain()
         return
 
     async def close(self, client_uuid: str):
         self.writer.write_eof()
         self.writer.close()
-        logging.info(f"Closed connection to client @ {client_uuid}.")
+        logging.debug(f"Closed connection to client @ {client_uuid}.")
         return
 
 
@@ -97,7 +99,10 @@ def parse_request(data: str) -> dict[str, Any]:
     # Check if request is valid
     request_types = ["put", "get", "delete", "abort"]
     c1 = "request" in req
-    c2 = req["request"] in request_types
+    try:
+        c2 = req["request"] in request_types
+    except KeyError:
+        c2 = False
     c3 = json_decoding_success
     valid = c1 and c2 and c3
 

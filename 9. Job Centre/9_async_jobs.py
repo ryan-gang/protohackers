@@ -15,7 +15,7 @@ logging.basicConfig(
         " %(message)s"
     ),
     datefmt="%Y-%m-%d %H:%M:%S",
-    level="DEBUG",
+    level="INFO",
     handlers=[logging.FileHandler("app.log"), logging.StreamHandler(sys.stdout)],
 )
 
@@ -38,6 +38,7 @@ async def handler(stream_reader: StreamReader, stream_writer: StreamWriter):
     client_working_on = 0
 
     while 1:
+        response = {}
         try:
             request = await reader.readline()
             logging.debug(f"Req : {request}")
@@ -54,7 +55,7 @@ async def handler(stream_reader: StreamReader, stream_writer: StreamWriter):
                 curr_queue = QUEUES[queue_str]
                 heappush(curr_queue, (-priority, job_id))
 
-                logging.info(f"PUT : {job_id}")
+                logging.debug(f"PUT : {job_id}")
                 response = {"status": "ok", "id": job_id}
 
             elif type == "get":
@@ -109,10 +110,10 @@ async def handler(stream_reader: StreamReader, stream_writer: StreamWriter):
                     DATASTORE.pop(job_id)
                     DELETED_JOBS.add(job_id)
                     # Handle jobs already queued in "get" method
-                    logging.info(f"DELETE : {job_id}")
+                    logging.debug(f"DELETE : {job_id}")
                     response = {"status": "ok"}
                 else:
-                    logging.info(f"DELETE FAILED : {job_id}")
+                    logging.debug(f"DELETE FAILED : {job_id}")
                     response = {"status": "no-job"}
 
             elif type == "abort":
@@ -124,24 +125,26 @@ async def handler(stream_reader: StreamReader, stream_writer: StreamWriter):
                         curr_queue = QUEUES[queue]
                         heappush(curr_queue, (-priority, job_id))
 
-                        logging.info(f"ABORT : {job_id}")
+                        logging.debug(f"ABORT : {job_id}")
                         response = {"status": "ok"}
                     else:
                         raise RuntimeError("Invalid abort request from client")
                 else:
-                    logging.info(f"ABORT FAILED : {job_id}")
+                    logging.debug(f"ABORT FAILED : {job_id}")
                     response = {"status": "no-job"}
 
             else:
                 response = {"status": "error", "error": "Unknown request type"}
 
-            logging.debug(f"Res : {response}")
-            await writer.writeline(dumps(response), client_uuid)
+            if response != {}:
+                logging.debug(f"Res : {response}")
+                await writer.writeline(dumps(response), client_uuid)
             await asyncio.sleep(0)
 
         except RuntimeError as err:
             logging.error(err)
-            response = {"status": "error", "error": err}
+            logging.debug(f"Res : {response}")
+            response = {"status": "error", "error": str(err)}
             await writer.writeline(dumps(response), client_uuid)
         except (asyncio.exceptions.IncompleteReadError, ConnectionResetError):
             logging.error(f"Client {client_uuid} disconnected.")
