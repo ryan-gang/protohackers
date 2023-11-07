@@ -1,7 +1,11 @@
+import asyncio
+import json
 import logging
 import sys
 from asyncio import StreamReader, StreamWriter
-import json
+from collections import defaultdict
+from heapq import heappop, heappush
+from json import dumps, loads
 from typing import Any
 
 logging.basicConfig(
@@ -85,27 +89,122 @@ class Identifier(object):
         return self.id
 
 
-def parse_request(data: str) -> dict[str, Any]:
-    """
-    Convert json request to python dict, and check for its validity.
-    """
-    json_decoding_success = False
-    try:
-        req = json.loads(data)
-        json_decoding_success = True
-    except json.JSONDecodeError:
-        raise RuntimeError("JSON Decode Error")
+DATASTORE: dict[int, Job] = {}
+QUEUES: dict[str, list[tuple[int, int]]] = defaultdict(list)
+DELETED_JOBS: set[int] = set()
 
-    # Check if request is valid
-    request_types = ["put", "get", "delete", "abort"]
-    c1 = "request" in req
-    try:
-        c2 = req["request"] in request_types
-    except KeyError:
-        c2 = False
-    c3 = json_decoding_success
-    valid = c1 and c2 and c3
 
-    if not valid:
-        raise RuntimeError("Invalid request received")
-    return req
+class JobsHandler(object):
+    def __init__(self):
+        pass
+
+    def parse_request(self, data: str) -> dict[str, Any]:
+        """
+        Convert json request to python dict, and check for its validity.
+        """
+        json_decoding_success = False
+        try:
+            req = json.loads(data)
+            json_decoding_success = True
+        except json.JSONDecodeError:
+            raise RuntimeError("JSON Decode Error")
+
+        # Check if request is valid
+        request_types = ["put", "get", "delete", "abort"]
+        c1 = "request" in req
+        try:
+            c2 = req["request"] in request_types
+        except KeyError:
+            c2 = False
+        c3 = json_decoding_success
+        valid = c1 and c2 and c3
+
+        if not valid:
+            raise RuntimeError("Invalid request received")
+        return req
+
+    async def handle_put_request(
+        self, data: dict[str, Any], job_id: int
+    ) -> dict[str, Any]:
+        queue, job, priority = data["queue"], data["job"], data["pri"]
+        queue_str, job_str = dumps(queue), dumps(job)
+        job_object = Job(job_id, job_str, priority, queue_str, status=0)
+        DATASTORE[job_id] = job_object
+        curr_queue = QUEUES[queue_str]
+        heappush(curr_queue, (-priority, job_id))
+
+        logging.debug(f"PUT : {job_id}")
+        return {"status": "ok", "id": job_id}
+
+    async def handle_get_request(
+        self, data: dict[str, Any]
+    ) -> tuple[dict[str, Any], bool]:
+        queues = data["queues"]
+        if "wait" in data:
+            wait_acceptable = bool(data["wait"])
+        else:
+            wait_acceptable = False
+        available_jobs: list[tuple[int, int, str]] = []
+
+        while 1:
+            for queue in queues:
+                queue_str = dumps(queue)
+                curr_queue = QUEUES[queue_str]
+                while len(curr_queue) > 0:
+                    priority, job_id = heappop(curr_queue)
+                    if job_id in DELETED_JOBS:
+                        continue
+                    tup = (priority, job_id, queue_str)
+                    heappush(available_jobs, tup)
+                    break
+
+            if len(available_jobs) > 0:
+                final_job = heappop(available_jobs)
+                _, job_id, _ = final_job
+                job_object = DATASTORE[job_id]
+                response = {
+                    "status": "ok",
+                    "id": job_id,
+                    "job": loads(job_object.job_data),
+                    "pri": job_object.priority,
+                    "queue": loads(job_object.queue),
+                }
+
+                for priority, job_id, queue_str in available_jobs:
+                    curr_queue = QUEUES[queue_str]
+                    heappush(curr_queue, (priority, job_id))
+                return response, True
+            else:
+                if not wait_acceptable:
+                    response = {"status": "no-job"}
+                    return response, False
+                else:
+                    await asyncio.sleep(2)
+
+    async def handle_delete_request(self, job_id: int) -> dict[str, Any]:
+        if job_id in DATASTORE:
+            DATASTORE.pop(job_id)
+            DELETED_JOBS.add(job_id)
+            # Handle jobs already queued in "get" method
+            logging.debug(f"DELETE : {job_id}")
+            return {"status": "ok"}
+        logging.debug(f"DELETE FAILED : {job_id}")
+        return {"status": "no-job"}
+
+    async def handle_abort_request(
+        self, job_id: int, client_working_on: int
+    ) -> dict[str, Any]:
+        if job_id in DATASTORE:
+            if job_id == client_working_on:
+                job_object = DATASTORE[job_id]
+                queue, priority = job_object.queue, job_object.priority
+                curr_queue = QUEUES[queue]
+                heappush(curr_queue, (-priority, job_id))
+
+                logging.debug(f"ABORT : {job_id}")
+                return {"status": "ok"}
+            else:
+                raise RuntimeError("Invalid abort request from client")
+        else:
+            logging.debug(f"ABORT FAILED : {job_id}")
+            return {"status": "no-job"}
