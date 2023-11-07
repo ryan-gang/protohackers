@@ -10,7 +10,7 @@ logging.basicConfig(
         " %(message)s"
     ),
     datefmt="%Y-%m-%d %H:%M:%S",
-    level="INFO",
+    level="DEBUG",
     handlers=[logging.FileHandler("app.log"), logging.StreamHandler(sys.stdout)],
 )
 
@@ -39,6 +39,18 @@ class Reader(object):
         if not data:
             raise RuntimeError("Connection closed by client")
         decoded = data.decode("utf-8").strip()
+        return decoded
+
+    async def read(self) -> str:
+        line = bytearray()
+        while True:
+            byte = await self.reader.readexactly(1)
+            if byte == b"":
+                raise RuntimeError("Connection closed by client")
+            line.extend(byte)
+            if byte == b"\n":
+                break
+        decoded = line.decode("utf-8").strip()
         return decoded
 
 
