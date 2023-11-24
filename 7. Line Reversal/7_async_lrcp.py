@@ -16,10 +16,12 @@ logging.basicConfig(
 
 IP, PORT = "10.128.0.2", 9090
 
+d: dict[str, "LRCPServerHandler"] = {}
+# For every client we create a new Handler object.
 
-class LRCPServerProtocol(asyncio.DatagramProtocol):
-    def __init__(self) -> None:
-        super().__init__()
+
+class LRCPServerHandler:
+    def __init__(self, lrcp_server_protocol: "LRCPServerProtocol") -> None:
         self.data = ""
         self.sent_data_archive = ""
         self.received_chars = 0
@@ -28,6 +30,59 @@ class LRCPServerProtocol(asyncio.DatagramProtocol):
         self.session_id = -1
         self.ack_lengths: list[int] = []
         self.prev_ack = ""
+        self.server_protocol = lrcp_server_protocol
+
+    def handle(self, data: str, addr: tuple[str, int]):
+        msg_parts = data.split("/")
+        msg_type, session_id = msg_parts[1], msg_parts[2]
+
+        if msg_type == "connect":
+            self.connected = True
+            self.session_id = session_id
+            self.server_protocol.send_datagram(f"/ack/{self.session_id}/0/", addr)
+
+        elif msg_type == "data":
+            pos, data = int(msg_parts[3]), msg_parts[4]
+            assert pos >= 0, ProtocolError("pos can't be negative")
+            if not self.connected:
+                self.server_protocol.send_datagram(f"/close/{session_id}/", addr)
+            elif pos < self.received_chars:
+                self.server_protocol.send_datagram(self.prev_ack, addr)
+            else:
+                self.data = data
+                self.received_chars += len(data)
+                curr_ack = f"/ack/{session_id}/{self.received_chars}/"
+                self.prev_ack = curr_ack
+                self.server_protocol.send_datagram(curr_ack, addr)
+                reversed_data = reverse(self.data)
+                output = f"/data/{self.session_id}/{self.sent_chars}/{reversed_data}/"
+                self.sent_data_archive += reversed_data
+                self.server_protocol.send_datagram(output, addr)
+
+        elif msg_type == "ack":
+            length = int(msg_parts[3])
+            if session_id != self.session_id:
+                self.server_protocol.send_datagram(f"/close/{session_id}/", addr)
+            if length <= max(self.ack_lengths):
+                return
+            if length > self.sent_chars:
+                raise ProtocolError("Client misbehaving")
+            if length < self.sent_chars:
+                output = (
+                    f"/data/{self.session_id}/{self.sent_chars}/{self.sent_data_archive[length:]}/"
+                )
+                self.server_protocol.send_datagram(output, addr)
+                pass
+            if length == self.sent_chars:
+                return
+
+        elif msg_type == "close":
+            self.server_protocol.send_datagram(f"/close/{session_id}/", addr)
+
+
+class LRCPServerProtocol(asyncio.DatagramProtocol):
+    def __init__(self) -> None:
+        super().__init__()
 
     def connection_made(self, transport: asyncio.DatagramTransport):
         self.transport = transport
@@ -43,54 +98,11 @@ class LRCPServerProtocol(asyncio.DatagramProtocol):
 
     def handler(self, request: bytes, addr: tuple[str, int]):
         data = request.decode()
-        msg_parts = data.split("/")
-        msg_type = msg_parts[1]
-
-        if msg_type == "connect":
-            self.connected = True
-            self.session_id = msg_parts[2]
-            self.send_datagram(f"/ack/{self.session_id}/0/", addr)
-
-        elif msg_type == "data":
-            session_id, pos, data = msg_parts[2], msg_parts[3], msg_parts[4]
-            pos = int(pos)
-            assert pos >= 0, ProtocolError("pos can't be negative")
-            if not self.connected:
-                self.send_datagram(f"/close/{session_id}/", addr)
-            elif pos < self.received_chars:
-                self.send_datagram(self.prev_ack, addr)
-            else:
-                self.data = data
-                self.received_chars += len(data)
-                curr_ack = f"/ack/{session_id}/{self.received_chars}/"
-                self.prev_ack = curr_ack
-                self.send_datagram(curr_ack, addr)
-                reversed_data = reverse(self.data)
-                output = f"/data/{self.session_id}/{self.sent_chars}/{reversed_data}/"
-                self.sent_data_archive += reversed_data
-                self.send_datagram(output, addr)
-
-        elif msg_type == "ack":
-            session_id = msg_parts[2]
-            length = int(msg_parts[3])
-            if session_id != self.session_id:
-                self.send_datagram(f"/close/{session_id}/", addr)
-            if length <= max(self.ack_lengths):
-                return
-            if length > self.sent_chars:
-                raise ProtocolError("Client misbehaving")
-            if length < self.sent_chars:
-                output = (
-                    f"/data/{self.session_id}/{self.sent_chars}/{self.sent_data_archive[length:]}/"
-                )
-                self.send_datagram(output, addr)
-                pass
-            if length == self.sent_chars:
-                return
-
-        elif msg_type == "close":
-            session_id = msg_parts[2]
-            self.send_datagram(f"/close/{session_id}/", addr)
+        session_id = data.split("/")[2]
+        if session_id not in d:
+            d[session_id] = LRCPServerHandler(self)
+        session_object = d[session_id]
+        session_object.handle(data, addr)
 
 
 def reverse(string: str) -> str:
