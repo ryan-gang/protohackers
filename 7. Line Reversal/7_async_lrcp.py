@@ -10,7 +10,7 @@ logging.basicConfig(
         " %(message)s"
     ),
     datefmt="%Y-%m-%d %H:%M:%S",
-    level="INFO",
+    level="DEBUG",
     handlers=[logging.FileHandler("app.log"), logging.StreamHandler(sys.stdout)],
 )
 
@@ -94,7 +94,11 @@ class LRCPServerProtocol(asyncio.DatagramProtocol):
 
 
 def reverse(string: str) -> str:
-    return string[::-1]
+    out: list[str] = []
+    for line in string.strip().split("\n"):
+        out.append(line[::-1])
+
+    return "\n".join(out) + "\n"
 
 
 async def main():
