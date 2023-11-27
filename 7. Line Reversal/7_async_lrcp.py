@@ -36,17 +36,22 @@ class Session:
         self.addr = addr
         self.processed_upto = 0
         self.last_ack_pos = 0
+        self.closed = False
 
     async def handle_dropped_acks(self):
         while 1:
+            logging.debug(f"{self.last_ack_pos}, {self.sent_chars}")
             if self.last_ack_pos < self.sent_chars:
                 pos = self.sent_chars
                 output = f"/data/{self.session_id}/{pos}/{self.sent_data_archive[pos:]}/"
                 self.server_protocol.send_datagram(output, self.addr)
+            if self.closed:
+                return
             await asyncio.sleep(3)
 
     def handle(self, data: str):
-        msg_parts = data.split("/")
+        data = data.replace("\\\\", "\\").replace("\\/", "/")
+        msg_parts = data.split("/", maxsplit=4)
         msg_type, session_id = msg_parts[1], msg_parts[2]
 
         if msg_type == "connect":
@@ -56,8 +61,9 @@ class Session:
             asyncio.create_task(self.handle_dropped_acks())
 
         elif msg_type == "data":
-            pos, data = int(msg_parts[3]), msg_parts[4]
-            unescaped_data = data.replace("\\\\", "\\").replace("\\/", "/")
+            pos, unescaped_data = int(msg_parts[3]), msg_parts[4]
+            if unescaped_data.endswith("/"):
+                unescaped_data = unescaped_data[:-1]
             assert pos >= 0, ProtocolError("pos can't be negative")
             if not self.connected:
                 self.server_protocol.send_datagram(f"/close/{session_id}/", self.addr)
@@ -71,7 +77,8 @@ class Session:
                 self.server_protocol.send_datagram(ack, self.addr)
                 reversed_data, remaining = reverse(self.data[self.processed_upto :])
                 self.processed_upto = self.read - len(remaining)
-                output = f"/data/{self.session_id}/{self.sent_chars}/{reversed_data}/"
+                escaped_reversed_data = reversed_data.replace("\\", "\\\\").replace("/", "\\/")
+                output = f"/data/{self.session_id}/{self.sent_chars}/{escaped_reversed_data}/"
                 self.sent_data_archive += reversed_data
                 self.sent_chars += len(reversed_data)
                 self.server_protocol.send_datagram(output, self.addr)
@@ -96,6 +103,7 @@ class Session:
 
         elif msg_type == "close":
             self.server_protocol.send_datagram(f"/close/{session_id}/", self.addr)
+            self.closed = True
 
 
 class LRCPServerProtocol(asyncio.DatagramProtocol):
