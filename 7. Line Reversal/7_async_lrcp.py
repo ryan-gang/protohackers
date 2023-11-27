@@ -42,68 +42,83 @@ class Session:
         while 1:
             logging.debug(f"{self.last_ack_pos}, {self.sent_chars}")
             if self.last_ack_pos < self.sent_chars:
-                pos = self.sent_chars
+                pos = self.last_ack_pos
                 output = f"/data/{self.session_id}/{pos}/{self.sent_data_archive[pos:]}/"
                 self.server_protocol.send_datagram(output, self.addr)
             if self.closed:
                 return
             await asyncio.sleep(3)
 
+    def handle_connect(self, msg_parts: list[str]):
+        session_id = msg_parts[2]
+        self.connected = True
+        self.session_id = session_id
+        self.server_protocol.send_datagram(f"/ack/{self.session_id}/0/", self.addr)
+        asyncio.create_task(self.handle_dropped_acks())
+        logging.info(f"Created dropped ack handling for : {session_id}")
+
+    def handle_data(self, msg_parts: list[str]):
+        session_id, pos, unescaped_data = msg_parts[2], int(msg_parts[3]), msg_parts[4]
+        if unescaped_data.endswith("/"):
+            unescaped_data = unescaped_data[:-1]
+        assert pos >= 0, ProtocolError("pos can't be negative")
+        if not self.connected:
+            self.server_protocol.send_datagram(f"/close/{session_id}/", self.addr)
+
+        if self.read >= pos:
+            curr_read = pos + len(unescaped_data)
+            if curr_read > self.read:
+                self.data = self.data[:pos] + unescaped_data
+                self.read = curr_read
+            ack = f"/ack/{session_id}/{self.read}/"
+            self.server_protocol.send_datagram(ack, self.addr)
+            reversed_data, remaining = reverse(self.data[self.processed_upto :])
+            self.processed_upto = self.read - len(remaining)
+            escaped_reversed_data = reversed_data.replace("\\", "\\\\").replace("/", "\\/")
+            output = f"/data/{self.session_id}/{self.sent_chars}/{escaped_reversed_data}/"
+            self.sent_data_archive += reversed_data
+            self.sent_chars += len(reversed_data)
+            self.server_protocol.send_datagram(output, self.addr)
+        else:
+            previous_ack = f"/ack/{session_id}/{self.read}/"
+            self.server_protocol.send_datagram(previous_ack, self.addr)
+
+    def handle_ack(self, msg_parts: list[str]):
+        session_id, pos = msg_parts[2], int(msg_parts[3])
+        self.last_ack_pos = max(pos, self.last_ack_pos)
+        if session_id != self.session_id:
+            self.server_protocol.send_datagram(f"/close/{session_id}/", self.addr)
+        if self.ack_lengths and pos <= max(self.ack_lengths):
+            return
+        if pos > self.sent_chars:
+            raise ProtocolError("Client misbehaving")
+        if pos < self.sent_chars:
+            output = f"/data/{self.session_id}/{pos}/{self.sent_data_archive[pos:]}/"
+            self.server_protocol.send_datagram(output, self.addr)
+        if pos == self.sent_chars:
+            return
+
+    def handle_close(self, msg_parts: list[str]):
+        session_id = msg_parts[2]
+        self.server_protocol.send_datagram(f"/close/{session_id}/", self.addr)
+        self.closed = True
+
     def handle(self, data: str):
         data = data.replace("\\\\", "\\").replace("\\/", "/")
         msg_parts = data.split("/", maxsplit=4)
-        msg_type, session_id = msg_parts[1], msg_parts[2]
+        msg_type = msg_parts[1]
 
         if msg_type == "connect":
-            self.connected = True
-            self.session_id = session_id
-            self.server_protocol.send_datagram(f"/ack/{self.session_id}/0/", self.addr)
-            asyncio.create_task(self.handle_dropped_acks())
+            self.handle_connect(msg_parts)
 
         elif msg_type == "data":
-            pos, unescaped_data = int(msg_parts[3]), msg_parts[4]
-            if unescaped_data.endswith("/"):
-                unescaped_data = unescaped_data[:-1]
-            assert pos >= 0, ProtocolError("pos can't be negative")
-            if not self.connected:
-                self.server_protocol.send_datagram(f"/close/{session_id}/", self.addr)
-
-            if self.read >= pos:
-                curr_read = pos + len(unescaped_data)
-                if curr_read > self.read:
-                    self.data = self.data[:pos] + unescaped_data
-                    self.read = curr_read
-                ack = f"/ack/{session_id}/{self.read}/"
-                self.server_protocol.send_datagram(ack, self.addr)
-                reversed_data, remaining = reverse(self.data[self.processed_upto :])
-                self.processed_upto = self.read - len(remaining)
-                escaped_reversed_data = reversed_data.replace("\\", "\\\\").replace("/", "\\/")
-                output = f"/data/{self.session_id}/{self.sent_chars}/{escaped_reversed_data}/"
-                self.sent_data_archive += reversed_data
-                self.sent_chars += len(reversed_data)
-                self.server_protocol.send_datagram(output, self.addr)
-            else:
-                previous_ack = f"/ack/{session_id}/{self.read}/"
-                self.server_protocol.send_datagram(previous_ack, self.addr)
+            self.handle_data(msg_parts)
 
         elif msg_type == "ack":
-            pos = int(msg_parts[3])
-            self.last_ack_pos = max(pos, self.last_ack_pos)
-            if session_id != self.session_id:
-                self.server_protocol.send_datagram(f"/close/{session_id}/", self.addr)
-            if self.ack_lengths and pos <= max(self.ack_lengths):
-                return
-            if pos > self.sent_chars:
-                raise ProtocolError("Client misbehaving")
-            if pos < self.sent_chars:
-                output = f"/data/{self.session_id}/{pos}/{self.sent_data_archive[pos:]}/"
-                self.server_protocol.send_datagram(output, self.addr)
-            if pos == self.sent_chars:
-                return
+            self.handle_ack(msg_parts)
 
         elif msg_type == "close":
-            self.server_protocol.send_datagram(f"/close/{session_id}/", self.addr)
-            self.closed = True
+            self.handle_close(msg_parts)
 
 
 class LRCPServerProtocol(asyncio.DatagramProtocol):
