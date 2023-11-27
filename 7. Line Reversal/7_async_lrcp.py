@@ -3,7 +3,7 @@ import logging
 import sys
 from typing import TypeAlias
 
-from errors import ProtocolError
+from errors import ProtocolError, ValidationError
 
 Addr: TypeAlias = tuple[str, int]  # (host, port)
 
@@ -50,7 +50,7 @@ class Session:
             await asyncio.sleep(3)
 
     def handle_connect(self, msg_parts: list[str]):
-        session_id = msg_parts[2]
+        session_id = msg_parts[1]
         self.connected = True
         self.session_id = session_id
         self.server_protocol.send_datagram(f"/ack/{self.session_id}/0/", self.addr)
@@ -58,9 +58,7 @@ class Session:
         logging.info(f"Created dropped ack handling for : {session_id}")
 
     def handle_data(self, msg_parts: list[str]):
-        session_id, pos, unescaped_data = msg_parts[2], int(msg_parts[3]), msg_parts[4]
-        if unescaped_data.endswith("/"):
-            unescaped_data = unescaped_data[:-1]
+        session_id, pos, unescaped_data = msg_parts[1], int(msg_parts[2]), msg_parts[3]
         assert pos >= 0, ProtocolError("pos can't be negative")
         if not self.connected:
             self.server_protocol.send_datagram(f"/close/{session_id}/", self.addr)
@@ -84,7 +82,7 @@ class Session:
             self.server_protocol.send_datagram(previous_ack, self.addr)
 
     def handle_ack(self, msg_parts: list[str]):
-        session_id, pos = msg_parts[2], int(msg_parts[3])
+        session_id, pos = msg_parts[1], int(msg_parts[2])
         self.last_ack_pos = max(pos, self.last_ack_pos)
         if session_id != self.session_id:
             self.server_protocol.send_datagram(f"/close/{session_id}/", self.addr)
@@ -99,14 +97,13 @@ class Session:
             return
 
     def handle_close(self, msg_parts: list[str]):
-        session_id = msg_parts[2]
+        session_id = msg_parts[1]
         self.server_protocol.send_datagram(f"/close/{session_id}/", self.addr)
         self.closed = True
 
     def handle(self, data: str):
-        data = data.replace("\\\\", "\\").replace("\\/", "/")
-        msg_parts = data.split("/", maxsplit=4)
-        msg_type = msg_parts[1]
+        msg_parts = data[1:-1].split("/", maxsplit=3)
+        msg_type = msg_parts[0]
 
         if msg_type == "connect":
             self.handle_connect(msg_parts)
@@ -140,11 +137,38 @@ class LRCPServerProtocol(asyncio.DatagramProtocol):
 
     def handler(self, request: bytes, addr: Addr):
         data = request.decode()
-        session_id = data.split("/")[2]
-        if session_id not in Sessions:
-            Sessions[session_id] = Session(self, addr)
-        session_object = Sessions[session_id]
-        session_object.handle(data)
+        unescaped_data = data.replace("\\\\", "\\").replace("\\/", "/")
+        try:
+            validate_data(data)
+            msg_parts = unescaped_data[1:-1].split("/", maxsplit=3)
+            session_id = msg_parts[1]
+            if session_id not in Sessions:
+                Sessions[session_id] = Session(self, addr)
+            session_object = Sessions[session_id]
+            session_object.handle(unescaped_data)
+        except (ValidationError, ProtocolError) as E:
+            logging.error(E)
+
+
+def validate_data(data: str):
+    msg_types = {"connect": 2, "data": 4, "ack": 3, "close": 2}
+    if not (data[0] == data[-1] == "/"):
+        raise ValidationError("Message should start and end with /")
+    parts = data.count("/") - data.count("\\/")
+    msg_parts = data[1:-1].split("/", maxsplit=3)
+    if len(msg_parts) < 2:
+        raise ValidationError("Invalid message parts")
+    msg_type, session = msg_parts[0], msg_parts[1]
+    if msg_type not in ["connect", "data", "ack", "close"]:
+        raise ValidationError("Undefined message type")
+    if len(msg_parts) != msg_types[msg_type]:
+        raise ValidationError("Invalid message received")
+    if parts != (exp := msg_types[msg_type] + 1):
+        raise ValidationError(f"Message contains too many parts : {parts}, expected : {exp}")
+    if len(data) > 1000:
+        raise ValidationError("Message can't be longer than 1000 chars")
+    if not session.isdigit() or int(session) < 0 or int(session) >= 2**31:
+        raise ValidationError("Invalid session")
 
 
 def reverse(string: str) -> tuple[str, str]:
