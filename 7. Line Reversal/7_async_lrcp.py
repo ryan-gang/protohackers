@@ -44,7 +44,7 @@ class Session:
             if self.last_ack_pos < self.sent_chars:
                 pos = self.last_ack_pos
                 output = f"/data/{self.session_id}/{pos}/{self.sent_data_archive[pos:]}/"
-                self.server_protocol.send_datagram(output, self.addr)
+                self.server_protocol.send_chunked_datagram(output, self.addr)
             if self.closed:
                 return
             await asyncio.sleep(3)
@@ -53,7 +53,7 @@ class Session:
         session_id = msg_parts[1]
         self.connected = True
         self.session_id = session_id
-        self.server_protocol.send_datagram(f"/ack/{self.session_id}/0/", self.addr)
+        self.server_protocol.send_chunked_datagram(f"/ack/{self.session_id}/0/", self.addr)
         asyncio.create_task(self.handle_dropped_acks())
         logging.info(f"Created dropped ack handling for : {session_id}")
 
@@ -61,7 +61,7 @@ class Session:
         session_id, pos, unescaped_data = msg_parts[1], int(msg_parts[2]), msg_parts[3]
         assert pos >= 0, ProtocolError("pos can't be negative")
         if not self.connected:
-            self.server_protocol.send_datagram(f"/close/{session_id}/", self.addr)
+            self.server_protocol.send_chunked_datagram(f"/close/{session_id}/", self.addr)
 
         if self.read >= pos:
             curr_read = pos + len(unescaped_data)
@@ -69,36 +69,36 @@ class Session:
                 self.data = self.data[:pos] + unescaped_data
                 self.read = curr_read
             ack = f"/ack/{session_id}/{self.read}/"
-            self.server_protocol.send_datagram(ack, self.addr)
+            self.server_protocol.send_chunked_datagram(ack, self.addr)
             reversed_data, remaining = reverse(self.data[self.processed_upto :])
             self.processed_upto = self.read - len(remaining)
             escaped_reversed_data = reversed_data.replace("\\", "\\\\").replace("/", "\\/")
             output = f"/data/{self.session_id}/{self.sent_chars}/{escaped_reversed_data}/"
             self.sent_data_archive += reversed_data
             self.sent_chars += len(reversed_data)
-            self.server_protocol.send_datagram(output, self.addr)
+            self.server_protocol.send_chunked_datagram(output, self.addr)
         else:
             previous_ack = f"/ack/{session_id}/{self.read}/"
-            self.server_protocol.send_datagram(previous_ack, self.addr)
+            self.server_protocol.send_chunked_datagram(previous_ack, self.addr)
 
     def handle_ack(self, msg_parts: list[str]):
         session_id, pos = msg_parts[1], int(msg_parts[2])
         self.last_ack_pos = max(pos, self.last_ack_pos)
         if session_id != self.session_id:
-            self.server_protocol.send_datagram(f"/close/{session_id}/", self.addr)
+            self.server_protocol.send_chunked_datagram(f"/close/{session_id}/", self.addr)
         if self.ack_lengths and pos <= max(self.ack_lengths):
             return
         if pos > self.sent_chars:
             raise ProtocolError("Client misbehaving")
         if pos < self.sent_chars:
             output = f"/data/{self.session_id}/{pos}/{self.sent_data_archive[pos:]}/"
-            self.server_protocol.send_datagram(output, self.addr)
+            self.server_protocol.send_chunked_datagram(output, self.addr)
         if pos == self.sent_chars:
             return
 
     def handle_close(self, msg_parts: list[str]):
         session_id = msg_parts[1]
-        self.server_protocol.send_datagram(f"/close/{session_id}/", self.addr)
+        self.server_protocol.send_chunked_datagram(f"/close/{session_id}/", self.addr)
         self.closed = True
 
     def handle(self, data: str):
@@ -134,6 +134,13 @@ class LRCPServerProtocol(asyncio.DatagramProtocol):
         logging.debug(f"Response : {response}")
         self.transport.sendto(response.encode(), addr)
         self.transport.sendto(response.encode(), addr)
+
+    def send_chunked_datagram(self, response: str, addr: Addr):
+        MAX_LEN = 750
+        n = len(response)
+        for i in range(0, n, MAX_LEN):
+            chunk = response[i : i + MAX_LEN]
+            self.send_datagram(chunk, addr)
 
     def handler(self, request: bytes, addr: Addr):
         data = request.decode()
