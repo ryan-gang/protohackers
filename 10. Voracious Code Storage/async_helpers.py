@@ -59,10 +59,10 @@ class Writer(object):
         await self.writer.drain()
         return
 
-    async def close(self, client_uuid: str):
+    async def close(self, client_id: str):
         self.writer.write_eof()
         self.writer.close()
-        logging.debug(f"Closed connection to client @ {client_uuid}.")
+        logging.debug(f"Closed connection to client @ {client_id}.")
         return
 
 

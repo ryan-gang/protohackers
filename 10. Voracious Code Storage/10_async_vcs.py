@@ -23,7 +23,8 @@ DATASTORE: dict[str, list[str]] = defaultdict(list)
 
 
 async def handler(stream_reader: StreamReader, stream_writer: StreamWriter):
-    logging.info(f"Connected to client @ {stream_writer.get_extra_info('peername')}")
+    peername = stream_writer.get_extra_info("peername")
+    logging.info(f"Connected to client @ {peername}")
     writer = Writer(stream_writer)
     reader = Reader(stream_reader)
     while 1:
@@ -68,7 +69,12 @@ async def handler(stream_reader: StreamReader, stream_writer: StreamWriter):
             await asyncio.sleep(0)
         except ProtocolError as err:
             logging.error(err)
-            await writer.writeline(err)
+            await writer.writeline(str(err))
+        except (asyncio.exceptions.IncompleteReadError, ConnectionResetError):
+            logging.error("Client disconnected.")
+            await writer.close(peername)
+            break
+
     return
 
 
