@@ -1,9 +1,10 @@
 import asyncio
+from collections import defaultdict
 import logging
 import sys
 from asyncio import StreamReader, StreamWriter
 
-from async_helpers import ProtocolError, Writer
+from async_helpers import ProtocolError, Reader, ValidationError, Writer
 
 logging.basicConfig(
     format=(
@@ -16,17 +17,19 @@ logging.basicConfig(
 )
 IP, PORT = "0.0.0.0", 9090
 
+DATASTORE: dict[str, list[str]] = defaultdict(list)
+# The list index is the revision number.
+# Starting from r1.
 
-async def handler(reader: StreamReader, stream_writer: StreamWriter):
+
+async def handler(stream_reader: StreamReader, stream_writer: StreamWriter):
     logging.info(f"Connected to client @ {stream_writer.get_extra_info('peername')}")
     writer = Writer(stream_writer)
-
+    reader = Reader(stream_reader)
     while 1:
         try:
             await writer.writeline("READY")
-            request = await reader.readline()
-            logging.debug(f"Req : {request}")
-            msg = request.decode()
+            msg = await reader.readline()
             msg_parts = msg.split(" ")
             msg_type = msg_parts[0]
 
@@ -34,14 +37,38 @@ async def handler(reader: StreamReader, stream_writer: StreamWriter):
                 case "HELP":
                     resp = "OK usage: HELP|GET|PUT|LIST"
                     await writer.writeline(resp)
+                case "PUT":
+                    file_path, length = msg_parts[1], msg_parts[2]
+                    if not file_path.startswith("/") or file_path.endswith("/"):
+                        raise ValidationError("ERR illegal file name")
+                    data = await reader.readexactly(n=int(length))
+                    DATASTORE[file_path].append(data)
+                    resp = f"OK r{len(DATASTORE[file_path])}"
+                    await writer.writeline(resp)
+                case "GET":
+                    file_path = msg_parts[1]
+                    if len(msg_parts) > 2:
+                        revision = int(msg_parts[2][1:])
+                    else:
+                        revision = 1
+                    if not file_path.startswith("/") or file_path.endswith("/"):
+                        raise ValidationError("ERR illegal file name")
+                    if file_path not in DATASTORE:
+                        raise ProtocolError("ERR no such file")
+                    else:
+                        data = DATASTORE[file_path][revision - 1]
+                        resp = f"OK {len(data)}"
+                        await writer.writeline(resp)
+                        await writer.writeline(data)
+                case "LIST":
+                    pass
                 case _:
                     err = f"ERR illegal method:{msg_type}"
                     raise ProtocolError(err)
-
             await asyncio.sleep(0)
-
         except ProtocolError as err:
             logging.error(err)
+            await writer.writeline(err)
     return
 
 

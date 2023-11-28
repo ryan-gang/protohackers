@@ -8,7 +8,7 @@ logging.basicConfig(
         " %(message)s"
     ),
     datefmt="%Y-%m-%d %H:%M:%S",
-    level="INFO",
+    level="DEBUG",
     handlers=[logging.FileHandler("app.log"), logging.StreamHandler(sys.stdout)],
 )
 
@@ -22,6 +22,12 @@ class Reader(object):
         if not data:
             raise RuntimeError("Connection closed by client")
         decoded = data.decode("utf-8").strip()
+        logging.debug(f"<-- {decoded}")
+        return decoded
+
+    async def readexactly(self, n: int) -> str:
+        data = await self.reader.readexactly(n)
+        decoded = data.decode("utf-8")
         logging.debug(f"<-- {decoded}")
         return decoded
 
@@ -45,10 +51,11 @@ class Writer(object):
 
     async def writeline(self, data: str):
         logging.debug(f"--> {data}")
-        data = data + "\n"
+        if not data.endswith("\n"):
+            data = data + "\n"
         out = data.encode("utf-8")
         self.writer.write(out)
-        logging.debug(f"Sent {out.hex()} : {len(data)} bytes to client.")
+        logging.debug(f"Sent {len(data)} bytes to client.")
         await self.writer.drain()
         return
 
