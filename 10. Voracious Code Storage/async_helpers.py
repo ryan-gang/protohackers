@@ -55,7 +55,7 @@ class Writer(object):
             data = data + "\n"
         out = data.encode("utf-8")
         self.writer.write(out)
-        logging.debug(f"Sent {len(data)} bytes to client.")
+        # logging.debug(f"Sent {len(data)} bytes to client.")
         await self.writer.drain()
         return
 

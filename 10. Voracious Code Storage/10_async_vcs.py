@@ -20,6 +20,10 @@ IP, PORT = "0.0.0.0", 9090
 DATASTORE: dict[str, list[str]] = defaultdict(list)
 # The list index is the revision number.
 # Starting from r1.
+DIRS: dict[str, set[str]] = defaultdict(set)
+# For every directory, store all of its direct children only. (Only empty directories)
+FILES: dict[str, set[str]] = defaultdict(set)
+# For every directory, store all of its direct children only. (Only leaf nodes that contain data)
 
 
 async def handler(stream_reader: StreamReader, stream_writer: StreamWriter):
@@ -46,6 +50,20 @@ async def handler(stream_reader: StreamReader, stream_writer: StreamWriter):
                     DATASTORE[file_path].append(data)
                     resp = f"OK r{len(DATASTORE[file_path])}"
                     await writer.writeline(resp)
+                    parts = file_path.split("/")
+                    leaf = len(parts) - 2
+                    for idx, _ in enumerate(parts[:-1]):
+                        parent = "/".join(parts[: idx + 1])
+                        child = parts[idx + 1]
+                        if not parent.startswith("/"):
+                            parent = "/" + parent
+
+                        if idx != leaf:
+                            child += "/"
+                            DIRS[parent].add(child)
+                        else:
+                            FILES[parent].add(child)
+
                 case "GET":
                     file_path = msg_parts[1]
                     if len(msg_parts) > 2:
@@ -62,7 +80,29 @@ async def handler(stream_reader: StreamReader, stream_writer: StreamWriter):
                         await writer.writeline(resp)
                         await writer.writeline(data)
                 case "LIST":
-                    pass
+                    path = msg_parts[1]
+                    if path != "/" and path.endswith("/"):
+                        path = path[:-1]
+
+                    dirs = DIRS[path]
+                    files = FILES[path]
+
+                    ls: list[str] = []
+                    seen: set[str] = set()
+
+                    for file in files:
+                        full_path = path + "/" + file
+                        revision = len(DATASTORE[full_path]) + 1
+                        ls.append(f"{file} r{revision}")
+                        seen.add(file)
+                    for dir in dirs:
+                        if dir not in seen and dir[:-1] not in seen:
+                            ls.append(f"{dir} DIR")
+
+                    ls.sort()
+                    ls_all = "\n".join(ls)
+                    out = f"OK {len(ls)}\n{ls_all}"
+                    await writer.writeline(out)
                 case _:
                     err = f"ERR illegal method:{msg_type}"
                     raise ProtocolError(err)
