@@ -1,5 +1,6 @@
 import asyncio
 from collections import defaultdict
+from hashlib import md5
 import logging
 import sys
 from asyncio import StreamReader, StreamWriter
@@ -26,6 +27,22 @@ FILES: dict[str, set[str]] = defaultdict(set)
 # For every directory, store all of its direct children only. (Only leaf nodes that contain data)
 
 
+def parse_child_parent_relationships(file_path: str):
+    parts = file_path.split("/")
+    leaf = len(parts) - 2
+    for idx, _ in enumerate(parts[:-1]):
+        parent = "/".join(parts[: idx + 1])
+        child = parts[idx + 1]
+        if not parent.startswith("/"):
+            parent = "/" + parent
+
+        if idx != leaf:
+            child += "/"
+            DIRS[parent].add(child)
+        else:
+            FILES[parent].add(child)
+
+
 async def handler(stream_reader: StreamReader, stream_writer: StreamWriter):
     peername = stream_writer.get_extra_info("peername")
     logging.info(f"Connected to client @ {peername}")
@@ -36,7 +53,7 @@ async def handler(stream_reader: StreamReader, stream_writer: StreamWriter):
             await writer.writeline("READY")
             msg = await reader.readline()
             msg_parts = msg.split(" ")
-            msg_type = msg_parts[0]
+            msg_type = msg_parts[0].upper()
 
             match msg_type:
                 case "HELP":
@@ -47,29 +64,21 @@ async def handler(stream_reader: StreamReader, stream_writer: StreamWriter):
                     if not file_path.startswith("/") or file_path.endswith("/"):
                         raise ValidationError("ERR illegal file name")
                     data = await reader.readexactly(n=int(length))
-                    DATASTORE[file_path].append(data)
+                    data_hash = md5(data.encode()).hexdigest()
+                    prev_data_hash = ""
+                    if len(DATASTORE[file_path]) > 0:
+                        prev_data = DATASTORE[file_path][-1]
+                        prev_data_hash = md5(prev_data.encode()).hexdigest()
+                    if data_hash != prev_data_hash:
+                        DATASTORE[file_path].append(data)
+                        parse_child_parent_relationships(file_path)
                     resp = f"OK r{len(DATASTORE[file_path])}"
                     await writer.writeline(resp)
-                    parts = file_path.split("/")
-                    leaf = len(parts) - 2
-                    for idx, _ in enumerate(parts[:-1]):
-                        parent = "/".join(parts[: idx + 1])
-                        child = parts[idx + 1]
-                        if not parent.startswith("/"):
-                            parent = "/" + parent
-
-                        if idx != leaf:
-                            child += "/"
-                            DIRS[parent].add(child)
-                        else:
-                            FILES[parent].add(child)
 
                 case "GET":
-                    file_path = msg_parts[1]
+                    file_path, revision = msg_parts[1], 0
                     if len(msg_parts) > 2:
                         revision = int(msg_parts[2][1:])
-                    else:
-                        revision = 1
                     if not file_path.startswith("/") or file_path.endswith("/"):
                         raise ValidationError("ERR illegal file name")
                     if file_path not in DATASTORE:
@@ -110,11 +119,13 @@ async def handler(stream_reader: StreamReader, stream_writer: StreamWriter):
         except ProtocolError as err:
             logging.error(err)
             await writer.writeline(str(err))
-        except (asyncio.exceptions.IncompleteReadError, ConnectionResetError):
+        except ConnectionResetError:
             logging.error("Client disconnected.")
             await writer.close(peername)
             break
-
+        except asyncio.exceptions.IncompleteReadError:
+            logging.error("Client disconnected.")
+            break
     return
 
 
