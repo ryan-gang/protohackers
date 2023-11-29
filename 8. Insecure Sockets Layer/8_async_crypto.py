@@ -53,7 +53,7 @@ async def handler(stream_reader: StreamReader, stream_writer: StreamWriter):
 
 async def main():
     server = await asyncio.start_server(handler, IP, PORT)
-    logging.info(f"Started Camera Server @ {IP}:{PORT}")
+    logging.info(f"Started Crypto Server @ {IP}:{PORT}")
 
     async with server:
         await server.serve_forever()
