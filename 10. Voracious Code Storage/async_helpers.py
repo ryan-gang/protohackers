@@ -8,7 +8,7 @@ logging.basicConfig(
         " %(message)s"
     ),
     datefmt="%Y-%m-%d %H:%M:%S",
-    level="DEBUG",
+    level="INFO",
     handlers=[logging.FileHandler("app.log"), logging.StreamHandler(sys.stdout)],
 )
 
@@ -19,17 +19,16 @@ class Reader(object):
 
     async def readline(self) -> str:
         data = await self.reader.readuntil(separator=b"\n")
+        logging.info(f"<-- {data}")
         if not data:
             raise RuntimeError("Connection closed by client")
         decoded = data.decode("utf-8").strip()
-        logging.debug(f"<-- {decoded}")
         return decoded
 
-    async def readexactly(self, n: int) -> str:
+    async def readexactly(self, n: int) -> bytes:
         data = await self.reader.readexactly(n)
-        decoded = data.decode("utf-8")
-        logging.debug(f"<-- {decoded}")
-        return decoded
+        logging.debug(f"<-- {data}")
+        return data
 
     async def read(self) -> str:
         line = bytearray()
@@ -50,7 +49,7 @@ class Writer(object):
         self.byte_counter = 0
 
     async def writeline(self, data: str):
-        logging.debug(f"--> {data}")
+        logging.info(f"--> {data}")
         if not data.endswith("\n"):
             data = data + "\n"
         out = data.encode("utf-8")
