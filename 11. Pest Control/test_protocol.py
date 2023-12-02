@@ -1,11 +1,15 @@
+import pytest
 from async_protocol import Parser
 from messages import (OK, CreatePolicy, DeletePolicy, DialAuthority, Error,
                       Hello, PolicyResult, PopulationActual, SiteVisit,
                       TargetPopulations)
+from serializer import Serializer
 
 
 class TestHello:
     parser = Parser()
+    s = Serializer()
+
     hexdigest = "50000000190000000b70657374636f6e74726f6c00000001ce"
     data = bytes.fromhex(hexdigest)
     hello: Hello = parser.parse_message(data)
@@ -16,9 +20,15 @@ class TestHello:
     def test_parse_hello_version(self):
         assert self.hello.version == 1
 
+    @pytest.mark.asyncio
+    async def test_serializer(self):
+        assert (await self.s.serialize_hello(self.hello)).hex() == self.hexdigest
+
 
 class TestError:
     parser = Parser()
+    s = Serializer()
+
     hexdigest = "510000000d0000000362616478"
     data = bytes.fromhex(hexdigest)
     error: Error = parser.parse_message(data)
@@ -26,9 +36,15 @@ class TestError:
     def test_message(self):
         assert self.error.message == "bad"
 
+    @pytest.mark.asyncio
+    async def test_serializer(self):
+        assert (await self.s.serialize_error(self.error)).hex() == self.hexdigest
+
 
 class TestOK:
     parser = Parser()
+    s = Serializer()
+
     hexdigest = "5200000006a8"
     data = bytes.fromhex(hexdigest)
     ok: OK = parser.parse_message(data)
@@ -36,15 +52,25 @@ class TestOK:
     def test_ok(self):
         assert isinstance(self.ok, OK)
 
+    @pytest.mark.asyncio
+    async def test_serializer(self):
+        assert (await self.s.serialize_ok(self.ok)).hex() == self.hexdigest
+
 
 class TestDialAuthority:
     parser = Parser()
+    s = Serializer()
+
     hexdigest = "530000000a000030393a"
     data = bytes.fromhex(hexdigest)
     dial_authority: DialAuthority = parser.parse_message(data)
 
     def test_site(self):
         assert self.dial_authority.site == 12345
+
+    @pytest.mark.asyncio
+    async def test_serializer(self):
+        assert (await self.s.serialize_dial_authority(self.dial_authority)).hex() == self.hexdigest
 
 
 class TestPopulationTarget:
@@ -73,6 +99,8 @@ class TestPopulationTarget:
 
 class TestCreatePolicy:
     parser = Parser()
+    s = Serializer()
+
     hexdigest = "550000000e00000003646f67a0c0"
     data = bytes.fromhex(hexdigest)
     create_policy: CreatePolicy = parser.parse_message(data)
@@ -83,15 +111,25 @@ class TestCreatePolicy:
     def test_action(self):
         assert self.create_policy.action is True
 
+    @pytest.mark.asyncio
+    async def test_serializer(self):
+        assert (await self.s.serialize_create_policy(self.create_policy)).hex() == self.hexdigest
+
 
 class TestDeletePolicy:
     parser = Parser()
+    s = Serializer()
+
     hexdigest = "560000000a0000007b25"
     data = bytes.fromhex(hexdigest)
     delete_policy: DeletePolicy = parser.parse_message(data)
 
     def test_policy(self):
         assert self.delete_policy.policy == 123
+
+    @pytest.mark.asyncio
+    async def test_serializer(self):
+        assert (await self.s.serialize_delete_policy(self.delete_policy)).hex() == self.hexdigest
 
 
 class TestPolicyResult:
