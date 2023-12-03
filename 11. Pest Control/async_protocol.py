@@ -15,7 +15,7 @@ logging.basicConfig(
         " %(message)s"
     ),
     datefmt="%Y-%m-%d %H:%M:%S",
-    level="INFO",
+    level="DEBUG",
     handlers=[logging.FileHandler("app.log"), logging.StreamHandler(sys.stdout)],
 )
 
@@ -54,8 +54,9 @@ class Reader(object):
         l = await self.reader.readexactly(4)
         out.extend(l)
         length, _ = self.parser.parse_uint32(l)
-        d = await self.reader.readexactly(length - 2)
+        d = await self.reader.readexactly(length - 5)
         out.extend(d)
+        logging.debug(f"Request : {out}")
         return out[0], out
 
     async def read_and_parse_u32(self) -> int:
