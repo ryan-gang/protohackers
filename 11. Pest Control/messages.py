@@ -38,7 +38,7 @@ class TargetPopulations:
 @dataclass
 class CreatePolicy:
     species: str
-    action: bool
+    action: str
 
 
 @dataclass

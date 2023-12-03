@@ -44,7 +44,7 @@ class Reader(object):
         self.reader = reader
         self.parser = parser
 
-    async def read_message(self) -> tuple[int, bytearray]:
+    async def read_message(self, log: bool = False) -> tuple[int, bytearray]:
         """
         Returns the msg_code (identifying the type), and the bytearray for the request.
         """
@@ -56,7 +56,8 @@ class Reader(object):
         length, _ = self.parser.parse_uint32(l)
         d = await self.reader.readexactly(length - 5)
         out.extend(d)
-        logging.debug(f"Request : {out}")
+        if log:
+            logging.debug(f"Request : {out}")
         return out[0], out
 
     async def read_and_parse_u32(self) -> int:
@@ -169,9 +170,9 @@ class Parser(object):
         species, data = self.parse_str(data, l)
         action, act = data[0], False
         if action == 144:
-            act = False  # Cull
+            act = "CULL"  # Cull
         elif action == 160:
-            act = True  # Conserve
+            act = "CONSERVE"  # Conserve
         else:
             raise ProtocolError("Unknown Action in Policy")
 
@@ -271,7 +272,10 @@ class Serializer(object):
 
         out = bytearray()
         out.extend(await self._serialize_lp_str(msg.species))
-        action: int = 160 if msg.action else 144
+        if msg.action == "CONSERVE":
+            action = 160
+        else:
+            action = 144
         out.extend(await self._serialize_uint8(action))
         return await self.serialize_message(out, CODE)
 
@@ -289,7 +293,7 @@ class Writer(object):
         self.writer = writer
         self.p = Parser()
 
-    async def write(self, data: bytes, log: bool = True):
+    async def write(self, data: bytes, log: bool = False):
         self.writer.write(data)
         if log:
             logging.debug(f"Response : {data.strip()}")
