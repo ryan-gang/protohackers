@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import sys
+import uuid
 from asyncio import StreamReader, StreamWriter
 from collections import defaultdict
 
@@ -10,10 +11,7 @@ from messages import (CreatePolicy, DeletePolicy, DialAuthority, Error, Hello,
                       PolicyResult, SiteVisit, TargetPopulations)
 
 logging.basicConfig(
-    format=(
-        "%(asctime)s | %(levelname)s | %(name)s |  [%(filename)s:%(lineno)d] | %(threadName)-10s |"
-        " %(message)s"
-    ),
+    format=("%(asctime)s | %(levelname)s | %(name)s |  [%(filename)s:%(lineno)d] |" " %(message)s"),
     datefmt="%Y-%m-%d %H:%M:%S",
     level="DEBUG",
     handlers=[logging.FileHandler("app.log"), logging.StreamHandler(sys.stdout)],
@@ -33,6 +31,7 @@ TARGETPOPULATIONS: dict[int, dict[str, tuple[int, int]]] = defaultdict(
 class AuthorityServer(object):
     def __init__(self, site_id: int) -> None:
         self.site_id = site_id
+        self.uuid = "AU" + str(uuid.uuid4()).split("-")[0]
 
     async def connect(self):
         up_stream_reader, up_stream_writer = await asyncio.open_connection(
@@ -44,34 +43,37 @@ class AuthorityServer(object):
         self.serializer = Serializer()
         self.connected = False
         self.upstream_peername = up_stream_writer.get_extra_info("peername")
-        logging.debug(f"Connected to Authority @ {self.upstream_peername}")
+        logging.debug(f"{self.uuid} | Connected to Authority @ {self.upstream_peername}")
 
     async def send_hello(self):
         out = Hello(protocol="pestcontrol", version=1)
         response = await self.serializer.serialize_hello(out)
         await self.writer.write(response)
-        logging.debug(f"Sent Hello to {self.upstream_peername}")
+        logging.debug(f"{self.uuid} | Sent Hello to {self.upstream_peername}")
 
     async def get_hello(self):
         msg_code, message_bytes = await self.reader.read_message()
         if msg_code != 80 and not self.connected:
-            raise ProtocolError("First message has to be Hello.")
+            logging.debug(f"{self.uuid} | {self.parser.parse_message(bytes(message_bytes))}")
+            raise ProtocolError(f"First message has to be Hello. But received : {message_bytes}")
         if msg_code == 80:
             _ = self.parser.parse_message(bytes(message_bytes))
             if not self.connected:
                 self.connected = True
-        logging.debug(f"Received Hello from {self.upstream_peername}")
+        logging.debug(f"{self.uuid} | Received Hello from {self.upstream_peername}")
 
     async def handshake(self):
         await self.send_hello()
         await self.get_hello()
-        logging.debug(f"Finished handshake with {self.upstream_peername}")
+        logging.debug(f"{self.uuid} | Finished handshake with {self.upstream_peername}")
 
     async def dial_authority(self):
         out = DialAuthority(self.site_id)
         response = await self.serializer.serialize_dial_authority(out)
         await self.writer.write(response)
-        logging.debug(f"Sent Dial Authority for {self.site_id} to {self.upstream_peername}")
+        logging.debug(
+            f"{self.uuid} | Sent Dial Authority for {self.site_id} to {self.upstream_peername}"
+        )
 
     async def get_target_populations(self):
         msg_code, message_bytes = await self.reader.read_message()
@@ -79,7 +81,8 @@ class AuthorityServer(object):
             population_target = self.parser.parse_message(bytes(message_bytes))
             assert type(population_target) == TargetPopulations
         else:
-            raise ProtocolError("Unexpected Message")
+            logging.debug(f"{self.uuid} | {self.parser.parse_message(bytes(message_bytes))}")
+            raise ProtocolError("Unexpected Message. Expected 84")
         site = population_target.site
         populations = population_target.populations
 
@@ -87,9 +90,9 @@ class AuthorityServer(object):
             minimum, maximum = population.min, population.max
             (TARGETPOPULATIONS[site][population.species]) = minimum, maximum
         logging.debug(
-            f"Received Target Population for {self.site_id} from {self.upstream_peername}"
+            f"{self.uuid} | Received Target Population for {self.site_id} from {self.upstream_peername}"
         )
-        logging.debug(population_target)
+        logging.debug(f"{self.uuid} | {population_target}")
 
     async def create_policy(
         self,
@@ -105,9 +108,12 @@ class AuthorityServer(object):
             policy_result = self.parser.parse_message(bytes(message_bytes))
             assert type(policy_result) == PolicyResult
         else:
-            raise ProtocolError("Unexpected Message")
+            logging.debug(f"{self.uuid} | {self.parser.parse_message(bytes(message_bytes))}")
+            raise ProtocolError("Unexpected Message. Expected 87")
         policy_id = policy_result.policy
-        logging.debug(f"Created policy for {site_id}, {species}, {action} : {policy_id}")
+        logging.debug(
+            f"{self.uuid} | Created policy for {site_id}, {species}, {action} : {policy_id}"
+        )
         POLICIES[site_id][species] = (policy_id, action)
 
     async def delete_policy(
@@ -119,19 +125,21 @@ class AuthorityServer(object):
         out = DeletePolicy(policy_id)
         response = await self.serializer.serialize_delete_policy(out)
         await self.writer.write(response)
-        logging.debug(f"Deleted policy ID {policy_id} for {site_id}, {species}")
+        logging.debug(f"{self.uuid} | Deleted policy ID {policy_id} for {site_id}, {species}")
         POLICIES[site_id][species] = ()  # type: ignore
         msg_code, message_bytes = await self.reader.read_message()
         if msg_code == 82:
             _ = self.parser.parse_message(bytes(message_bytes))
         else:
-            raise ProtocolError("Unexpected Message")
-        logging.debug(f"Received OK for Delete Policy : {policy_id}")
+            logging.debug(f"{self.uuid} | {self.parser.parse_message(bytes(message_bytes))}")
+            raise ProtocolError("Unexpected Message. Expected 82")
+        logging.debug(f"{self.uuid} | Received OK for Delete Policy : {policy_id}")
 
 
 async def client_handler(stream_reader: StreamReader, stream_writer: StreamWriter):
     peername = stream_writer.get_extra_info("peername")
-    logging.debug(f"Connected to client @ {peername}")
+    client_uuid = "CL" + str(uuid.uuid4()).split("-")[0]
+    logging.debug(f"{client_uuid} | Connected to client @ {peername}")
 
     writer = Writer(stream_writer)
     parser = Parser()
@@ -155,7 +163,7 @@ async def client_handler(stream_reader: StreamReader, stream_writer: StreamWrite
                     Connected = True
             elif msg_code == 88:  # SITEVISIT
                 site_visit = parser.parse_message(bytes(message_bytes))
-                logging.debug(f"{site_visit}")
+                logging.debug(f"{client_uuid} | {site_visit}")
 
                 assert type(site_visit) == SiteVisit
                 site_id = site_visit.site
@@ -163,9 +171,11 @@ async def client_handler(stream_reader: StreamReader, stream_writer: StreamWrite
                     authority = AuthorityServer(site_id)
                     await authority.connect()
                     await authority.handshake()
+                    await asyncio.sleep(0)
                     AUTHORITIES[site_id] = authority
 
                 authority = AUTHORITIES[site_id]
+                logging.debug(f"Linked : {client_uuid} x {authority.uuid}")
 
                 if site_id not in TARGETPOPULATIONS:
                     await authority.dial_authority()
@@ -218,17 +228,17 @@ async def client_handler(stream_reader: StreamReader, stream_writer: StreamWrite
                 raise ProtocolError(err)
             await asyncio.sleep(0)
         except ProtocolError as err:
-            logging.error(err)
+            logging.error(f"{client_uuid} | {err}")
             error = await serializer.serialize_error(Error(str(err)))
             await writer.write(error)
             await writer.close(peername)
             break
         except ConnectionResetError:
-            logging.error("Client disconnected.")
+            logging.error(f"{client_uuid} | Client disconnected.")
             await writer.close(peername)
             break
         except asyncio.exceptions.IncompleteReadError:
-            logging.error("Client disconnected.")
+            logging.error(f"{client_uuid} | Client disconnected.")
             break
     return
 
