@@ -31,6 +31,7 @@ TARGETPOPULATIONS: dict[int, dict[str, tuple[int, int]]] = defaultdict(
 class AuthorityServer(object):
     def __init__(self, site_id: int) -> None:
         self.site_id = site_id
+        self.dialed_in = False
         self.uuid = "AU" + str(uuid.uuid4()).split("-")[0]
 
     async def connect(self):
@@ -68,12 +69,15 @@ class AuthorityServer(object):
         logging.debug(f"{self.uuid} | Finished handshake with {self.upstream_peername}")
 
     async def dial_authority(self):
+#        if not self.dialed_in:
         out = DialAuthority(self.site_id)
         response = await self.serializer.serialize_dial_authority(out)
         await self.writer.write(response)
         logging.debug(
             f"{self.uuid} | Sent Dial Authority for {self.site_id} to {self.upstream_peername}"
         )
+        self.dialed_in = True
+        TARGETPOPULATIONS[self.site_id] = {}
 
     async def get_target_populations(self):
         msg_code, message_bytes = await self.reader.read_message()
@@ -146,7 +150,7 @@ async def client_handler(stream_reader: StreamReader, stream_writer: StreamWrite
     reader = Reader(stream_reader, parser)
     serializer = Serializer()
 
-    Connected = False
+    connected = dialed_in = False
 
     out = Hello(protocol="pestcontrol", version=1)
     response = await serializer.serialize_hello(out)
@@ -155,12 +159,12 @@ async def client_handler(stream_reader: StreamReader, stream_writer: StreamWrite
     while 1:
         try:
             msg_code, message_bytes = await reader.read_message()
-            if msg_code != 80 and not Connected:
+            if msg_code != 80 and not connected:
                 raise ProtocolError("First message has to be Hello.")
             if msg_code == 80:
                 _ = parser.parse_message(bytes(message_bytes))
-                if not Connected:
-                    Connected = True
+                if not connected:
+                    connected = True
             elif msg_code == 88:  # SITEVISIT
                 site_visit = parser.parse_message(bytes(message_bytes))
                 logging.debug(f"{client_uuid} | {site_visit}")
@@ -177,9 +181,11 @@ async def client_handler(stream_reader: StreamReader, stream_writer: StreamWrite
                 authority = AUTHORITIES[site_id]
                 logging.debug(f"Linked : {client_uuid} x {authority.uuid}")
 
-                if site_id not in TARGETPOPULATIONS:
+                # if site_id not in TARGETPOPULATIONS:
+                if not dialed_in:
                     await authority.dial_authority()
                     await authority.get_target_populations()
+                    dialed_in = True
 
                 all_species_data: dict[str, int] = defaultdict(int)
                 for population in site_visit.populations:
