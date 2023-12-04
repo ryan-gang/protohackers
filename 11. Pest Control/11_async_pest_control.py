@@ -177,6 +177,8 @@ async def client_handler(stream_reader: StreamReader, stream_writer: StreamWrite
                 _ = parser.parse_message(bytes(message_bytes))
                 if not connected:
                     connected = True
+                elif connected:
+                    raise ProtocolError("Illegal Hello Message")
             elif msg_code == 88:  # SITEVISIT
                 site_visit = parser.parse_message(bytes(message_bytes))
                 # logging.debug(f"{client_uuid} | {site_visit}")
