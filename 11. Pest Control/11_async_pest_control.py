@@ -19,7 +19,8 @@ logging.basicConfig(
 IP, PORT = "0.0.0.0", 9090
 UPSTREAM_IP, UPSTREAM_PORT = "pestcontrol.protohackers.com", 20547
 AUTHORITIES: dict[int, "AuthorityServer"] = {}  # {site_id: AuthorityServer}
-# Add to list only after connecting and sending Hello.
+# Add to list only after connecting & performing handshake.
+# For every site_id we will instantiate a single AuthorityServer.
 POLICIES: dict[int, dict[str, tuple[int, str]]] = defaultdict(lambda: defaultdict(tuple[int, str]))
 # {site_id : {species : [policy_id, action]}}
 # "CONSERVE", "CULL"
@@ -69,7 +70,6 @@ class AuthorityServer(object):
         logging.debug(f"{self.uuid} | Finished handshake with {self.upstream_peername}")
 
     async def dial_authority(self):
-#        if not self.dialed_in:
         out = DialAuthority(self.site_id)
         response = await self.serializer.serialize_dial_authority(out)
         await self.writer.write(response)
@@ -77,9 +77,8 @@ class AuthorityServer(object):
             f"{self.uuid} | Sent Dial Authority for {self.site_id} to {self.upstream_peername}"
         )
         self.dialed_in = True
-        TARGETPOPULATIONS[self.site_id] = {}
 
-    async def get_target_populations(self):
+    async def fetch_target_populations(self) -> TargetPopulations:
         msg_code, message_bytes = await self.reader.read_message()
         if msg_code == 84:
             population_target = self.parser.parse_message(bytes(message_bytes))
@@ -87,16 +86,28 @@ class AuthorityServer(object):
         else:
             logging.debug(f"{self.uuid} | {self.parser.parse_message(bytes(message_bytes))}")
             raise ProtocolError("Unexpected Message. Expected 84")
+        logging.debug(
+            f"{self.uuid} | Received Target Population for {self.site_id} from {self.upstream_peername}"
+        )
+        logging.debug(f"{self.uuid} | {population_target}")
+        return population_target
+
+    async def parse_target_populations(self, population_target: TargetPopulations):
         site = population_target.site
         populations = population_target.populations
 
         for population in populations:
             minimum, maximum = population.min, population.max
             (TARGETPOPULATIONS[site][population.species]) = minimum, maximum
-        logging.debug(
-            f"{self.uuid} | Received Target Population for {self.site_id} from {self.upstream_peername}"
-        )
-        logging.debug(f"{self.uuid} | {population_target}")
+        logging.debug(f"Parsed {len(populations)} and added them to TARGETPOPULATIONS[{site}]")
+
+    async def get_target_populations(self):
+        if not self.dialed_in:
+            await self.dial_authority()
+            populations = await self.fetch_target_populations()
+            self.populations = populations # Cached
+        if self.site_id not in TARGETPOPULATIONS:
+            await self.parse_target_populations(self.populations)
 
     async def create_policy(
         self,
@@ -150,7 +161,7 @@ async def client_handler(stream_reader: StreamReader, stream_writer: StreamWrite
     reader = Reader(stream_reader, parser)
     serializer = Serializer()
 
-    connected = dialed_in = False
+    connected = False
 
     out = Hello(protocol="pestcontrol", version=1)
     response = await serializer.serialize_hello(out)
@@ -180,12 +191,7 @@ async def client_handler(stream_reader: StreamReader, stream_writer: StreamWrite
 
                 authority = AUTHORITIES[site_id]
                 logging.debug(f"Linked : {client_uuid} x {authority.uuid}")
-
-                # if site_id not in TARGETPOPULATIONS:
-                if not dialed_in:
-                    await authority.dial_authority()
-                    await authority.get_target_populations()
-                    dialed_in = True
+                await authority.get_target_populations()
 
                 all_species_data: dict[str, int] = defaultdict(int)
                 for population in site_visit.populations:
