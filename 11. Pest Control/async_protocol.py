@@ -15,7 +15,7 @@ logging.basicConfig(
         " %(message)s"
     ),
     datefmt="%Y-%m-%d %H:%M:%S",
-    level="DEBUG",
+    level="INFO",
     handlers=[logging.FileHandler("app.log"), logging.StreamHandler(sys.stdout)],
 )
 
@@ -207,85 +207,83 @@ class Parser(object):
 
 
 class Serializer(object):
-    async def _serialize_lp_str(self, data: str) -> bytes:
-        return await self._serialize_uint32(len(data)) + await self._serialize_str(data)
+    def _serialize_lp_str(self, data: str) -> bytes:
+        return self._serialize_uint32(len(data)) + self._serialize_str(data)
 
-    async def _serialize_str(self, data: str) -> bytes:
+    def _serialize_str(self, data: str) -> bytes:
         return bytes(data, "utf-8")
 
-    async def _serialize_uint(self, data: int, fmt: str) -> bytes:
+    def _serialize_uint(self, data: int, fmt: str) -> bytes:
         return struct.pack(fmt, data)
 
-    async def _serialize_uint8(self, data: int) -> bytes:
-        return await self._serialize_uint(data, U8)
+    def _serialize_uint8(self, data: int) -> bytes:
+        return self._serialize_uint(data, U8)
 
-    async def _serialize_uint16(self, data: int) -> bytes:
-        return await self._serialize_uint(data, U16)
+    def _serialize_uint16(self, data: int) -> bytes:
+        return self._serialize_uint(data, U16)
 
-    async def _serialize_uint32(self, data: int) -> bytes:
-        return await self._serialize_uint(data, U32)
+    def _serialize_uint32(self, data: int) -> bytes:
+        return self._serialize_uint(data, U32)
 
-    async def serialize_message(self, data: bytearray, msg_code: int) -> bytes:
+    def serialize_message(self, data: bytearray, msg_code: int) -> bytes:
         length = len(data) + 1 + 4 + 1
-        out = (
-            (await self._serialize_uint8(msg_code)) + (await self._serialize_uint32(length)) + data
-        )
+        out = (self._serialize_uint8(msg_code)) + (self._serialize_uint32(length)) + data
         checksum = 256 - (sum(out) % 256)
-        out += await self._serialize_uint8(checksum)
+        out += self._serialize_uint8(checksum)
         return out
 
-    async def serialize_hello(self, msg: Hello) -> bytes:
+    def serialize_hello(self, msg: Hello) -> bytes:
         CODE_NAME = "HELLO"
         CODE = MSG_CODES[CODE_NAME]
 
         out = bytearray()
-        out.extend(await self._serialize_lp_str(msg.protocol))
-        out.extend(await self._serialize_uint32(msg.version))
-        return await self.serialize_message(out, CODE)
+        out.extend(self._serialize_lp_str(msg.protocol))
+        out.extend(self._serialize_uint32(msg.version))
+        return self.serialize_message(out, CODE)
 
-    async def serialize_error(self, msg: Error) -> bytes:
+    def serialize_error(self, msg: Error) -> bytes:
         CODE_NAME = "ERROR"
         CODE = MSG_CODES[CODE_NAME]
 
         out = bytearray()
-        out.extend(await self._serialize_lp_str(msg.message))
-        return await self.serialize_message(out, CODE)
+        out.extend(self._serialize_lp_str(msg.message))
+        return self.serialize_message(out, CODE)
 
-    async def serialize_ok(self, msg: OK) -> bytes:
+    def serialize_ok(self, msg: OK) -> bytes:
         CODE_NAME = "OK"
         CODE = MSG_CODES[CODE_NAME]
 
         out = bytearray()
-        return await self.serialize_message(out, CODE)
+        return self.serialize_message(out, CODE)
 
-    async def serialize_dial_authority(self, msg: DialAuthority) -> bytes:
+    def serialize_dial_authority(self, msg: DialAuthority) -> bytes:
         CODE_NAME = "DIALAUTHORITY"
         CODE = MSG_CODES[CODE_NAME]
 
         out = bytearray()
-        out.extend(await self._serialize_uint32(msg.site))
-        return await self.serialize_message(out, CODE)
+        out.extend(self._serialize_uint32(msg.site))
+        return self.serialize_message(out, CODE)
 
-    async def serialize_create_policy(self, msg: CreatePolicy) -> bytes:
+    def serialize_create_policy(self, msg: CreatePolicy) -> bytes:
         CODE_NAME = "CREATEPOLICY"
         CODE = MSG_CODES[CODE_NAME]
 
         out = bytearray()
-        out.extend(await self._serialize_lp_str(msg.species))
+        out.extend(self._serialize_lp_str(msg.species))
         if msg.action == "CONSERVE":
             action = 160
         else:
             action = 144
-        out.extend(await self._serialize_uint8(action))
-        return await self.serialize_message(out, CODE)
+        out.extend(self._serialize_uint8(action))
+        return self.serialize_message(out, CODE)
 
-    async def serialize_delete_policy(self, msg: DeletePolicy) -> bytes:
+    def serialize_delete_policy(self, msg: DeletePolicy) -> bytes:
         CODE_NAME = "DELETEPOLICY"
         CODE = MSG_CODES[CODE_NAME]
 
         out = bytearray()
-        out.extend(await self._serialize_uint32(msg.policy))
-        return await self.serialize_message(out, CODE)
+        out.extend(self._serialize_uint32(msg.policy))
+        return self.serialize_message(out, CODE)
 
 
 class Writer(object):
@@ -297,7 +295,8 @@ class Writer(object):
         self.writer.write(data)
         if log:
             logging.debug(f"Response : {data.strip()}")
-        return await self.writer.drain()
+        await self.writer.drain()
+        return
 
     async def close(self, conn: str):
         self.writer.write_eof()

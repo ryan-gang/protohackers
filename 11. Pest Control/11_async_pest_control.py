@@ -7,21 +7,13 @@ from collections import defaultdict
 
 from async_protocol import Parser, Reader, Serializer, Writer
 from errors import ProtocolError
-from messages import (
-    CreatePolicy,
-    DeletePolicy,
-    DialAuthority,
-    Error,
-    Hello,
-    PolicyResult,
-    SiteVisit,
-    TargetPopulations,
-)
+from messages import (CreatePolicy, DeletePolicy, DialAuthority, Error, Hello,
+                      PolicyResult, SiteVisit, TargetPopulations)
 
 logging.basicConfig(
     format=("%(asctime)s | %(levelname)s | %(name)s |  [%(filename)s:%(lineno)d] |" " %(message)s"),
     datefmt="%Y-%m-%d %H:%M:%S",
-    level="DEBUG",
+    level="INFO",
     handlers=[logging.FileHandler("app.log"), logging.StreamHandler(sys.stdout)],
 )
 IP, PORT = "0.0.0.0", 9090
@@ -58,14 +50,14 @@ class AuthorityServer(object):
 
     async def send_hello(self):
         out = Hello(protocol="pestcontrol", version=1)
-        response = await self.serializer.serialize_hello(out)
+        response = self.serializer.serialize_hello(out)
         await self.writer.write(response)
         logging.debug(f"{self.uuid} | Sent Hello to {self.upstream_peername}")
 
     async def get_hello(self):
         msg_code, message_bytes = await self.reader.read_message()
         if msg_code != 80 and not self.connected:
-            logging.debug(f"{self.uuid} | {self.parser.parse_message(bytes(message_bytes))}")
+            logging.error(f"{self.uuid} | {self.parser.parse_message(bytes(message_bytes))}")
             raise ProtocolError(f"First message has to be Hello. But received : {message_bytes}")
         if msg_code == 80:
             _ = self.parser.parse_message(bytes(message_bytes))
@@ -80,7 +72,7 @@ class AuthorityServer(object):
 
     async def dial_authority(self):
         out = DialAuthority(self.site_id)
-        response = await self.serializer.serialize_dial_authority(out)
+        response = self.serializer.serialize_dial_authority(out)
         await self.writer.write(response)
         logging.debug(
             f"{self.uuid} | Sent Dial Authority for {self.site_id} to {self.upstream_peername}"
@@ -93,12 +85,12 @@ class AuthorityServer(object):
             population_target = self.parser.parse_message(bytes(message_bytes))
             assert type(population_target) == TargetPopulations
         else:
-            logging.debug(f"{self.uuid} | {self.parser.parse_message(bytes(message_bytes))}")
+            logging.error(f"{self.uuid} | {self.parser.parse_message(bytes(message_bytes))}")
             raise ProtocolError("Unexpected Message. Expected 84")
         logging.debug(
             f"{self.uuid} | Received Target Population for {self.site_id} from {self.upstream_peername}"
         )
-        logging.debug(f"{self.uuid} | {population_target}")
+        # logging.debug(f"{self.uuid} | {population_target}")
         return population_target
 
     async def parse_target_populations(self, population_target: TargetPopulations):
@@ -125,14 +117,14 @@ class AuthorityServer(object):
         action: str,
     ):
         out = CreatePolicy(species, action)
-        response = await self.serializer.serialize_create_policy(out)
+        response = self.serializer.serialize_create_policy(out)
         await self.writer.write(response)
         msg_code, message_bytes = await self.reader.read_message()
         if msg_code == 87:
             policy_result = self.parser.parse_message(bytes(message_bytes))
             assert type(policy_result) == PolicyResult
         else:
-            logging.debug(f"{self.uuid} | {self.parser.parse_message(bytes(message_bytes))}")
+            logging.error(f"{self.uuid} | {self.parser.parse_message(bytes(message_bytes))}")
             raise ProtocolError("Unexpected Message. Expected 87")
         policy_id = policy_result.policy
         logging.debug(
@@ -147,7 +139,7 @@ class AuthorityServer(object):
         species: str,
     ):
         out = DeletePolicy(policy_id)
-        response = await self.serializer.serialize_delete_policy(out)
+        response = self.serializer.serialize_delete_policy(out)
         await self.writer.write(response)
         logging.debug(f"{self.uuid} | Deleted policy ID {policy_id} for {site_id}, {species}")
         POLICIES[site_id][species] = ()  # type: ignore
@@ -155,7 +147,7 @@ class AuthorityServer(object):
         if msg_code == 82:
             _ = self.parser.parse_message(bytes(message_bytes))
         else:
-            logging.debug(f"{self.uuid} | {self.parser.parse_message(bytes(message_bytes))}")
+            logging.error(f"{self.uuid} | {self.parser.parse_message(bytes(message_bytes))}")
             raise ProtocolError("Unexpected Message. Expected 82")
         logging.debug(f"{self.uuid} | Received OK for Delete Policy : {policy_id}")
 
@@ -173,7 +165,7 @@ async def client_handler(stream_reader: StreamReader, stream_writer: StreamWrite
     connected = False
 
     out = Hello(protocol="pestcontrol", version=1)
-    response = await serializer.serialize_hello(out)
+    response = serializer.serialize_hello(out)
     await writer.write(response)
 
     while 1:
@@ -187,7 +179,7 @@ async def client_handler(stream_reader: StreamReader, stream_writer: StreamWrite
                     connected = True
             elif msg_code == 88:  # SITEVISIT
                 site_visit = parser.parse_message(bytes(message_bytes))
-                logging.debug(f"{client_uuid} | {site_visit}")
+                # logging.debug(f"{client_uuid} | {site_visit}")
 
                 assert type(site_visit) == SiteVisit
                 site_id = site_visit.site
@@ -220,6 +212,12 @@ async def client_handler(stream_reader: StreamReader, stream_writer: StreamWrite
                     async with LOCK:
                         if species in TARGETPOPULATIONS[site_id]:
                             minimum, maximum = TARGETPOPULATIONS[site_id][species]
+                            logging.debug(
+                                f"{client_uuid} | Site : {site_id} contains {species} : {count}, expected : [{minimum}, {maximum}]"
+                            )
+                            logging.debug(
+                                f"{client_uuid} | Policy @ {site_id} for {species} : {POLICIES[site_id][species]}"
+                            )
                             if count < minimum:  # Conserve
                                 if POLICIES[site_id][species] != ():  # Policy present.
                                     policy_id, action = POLICIES[site_id][species]
@@ -251,7 +249,7 @@ async def client_handler(stream_reader: StreamReader, stream_writer: StreamWrite
             await asyncio.sleep(0)
         except ProtocolError as err:
             logging.error(f"{client_uuid} | {err}")
-            error = await serializer.serialize_error(Error(str(err)))
+            error = serializer.serialize_error(Error(str(err)))
             await writer.write(error)
             await writer.close(peername)
             break
