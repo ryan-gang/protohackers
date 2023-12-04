@@ -3,7 +3,7 @@ import logging
 import struct
 import sys
 import uuid
-from asyncio import StreamReader, StreamWriter
+from asyncio import Event, StreamReader, StreamWriter
 from collections import defaultdict
 
 from async_protocol import Parser, Reader, Serializer, Writer
@@ -20,6 +20,9 @@ logging.basicConfig(
 IP, PORT = "0.0.0.0", 9090
 UPSTREAM_IP, UPSTREAM_PORT = "pestcontrol.protohackers.com", 20547
 AUTHORITIES: dict[int, "AuthorityServer"] = {}  # {site_id: AuthorityServer}
+AUTHORITY_AVAILABLE: dict[int, Event] = {}  # { site_id : Asyncio.Event }
+# Once an Authority is available, set the event to False, other clients will have to wait,
+# Then set to True and sleep.
 # Add to list only after connecting & performing handshake.
 # For every site_id we will instantiate a single AuthorityServer.
 POLICIES: dict[int, dict[str, tuple[int, str]]] = defaultdict(lambda: defaultdict(tuple[int, str]))
@@ -28,7 +31,6 @@ POLICIES: dict[int, dict[str, tuple[int, str]]] = defaultdict(lambda: defaultdic
 TARGETPOPULATIONS: dict[int, dict[str, tuple[int, int]]] = defaultdict(
     lambda: defaultdict(tuple[int, int])
 )  # {site_id : {species : (min, max)}}
-LOCK = asyncio.Lock()
 
 
 class AuthorityServer(object):
@@ -192,8 +194,12 @@ async def client_handler(stream_reader: StreamReader, stream_writer: StreamWrite
                     await authority.connect()
                     await authority.handshake()
                     AUTHORITIES[site_id] = authority
+                    AUTHORITY_AVAILABLE[site_id].set()  # Now available
 
                 authority = AUTHORITIES[site_id]
+                authority_server_is_available = AUTHORITY_AVAILABLE[site_id]
+                await authority_server_is_available.wait()  # Wait until the Authority object is available to us, exclusively.
+                AUTHORITY_AVAILABLE[site_id].clear()  # Unavailable to others
                 logging.debug(f"Linked : {client_uuid} x {authority.uuid}")
                 await authority.get_target_populations()
 
@@ -212,40 +218,40 @@ async def client_handler(stream_reader: StreamReader, stream_writer: StreamWrite
 
                 for species in all_species_data:
                     count = all_species_data[species]
-                    async with LOCK:
-                        if species in TARGETPOPULATIONS[site_id]:
-                            minimum, maximum = TARGETPOPULATIONS[site_id][species]
-                            logging.debug(
-                                f"{client_uuid} | Site : {site_id} contains {species} : {count}, expected : [{minimum}, {maximum}]"
-                            )
-                            logging.debug(
-                                f"{client_uuid} | Policy @ {site_id} for {species} : {POLICIES[site_id][species]}"
-                            )
-                            if count < minimum:  # Conserve
-                                if POLICIES[site_id][species] != ():  # Policy present.
-                                    policy_id, action = POLICIES[site_id][species]
-                                    if action == "CULL":
-                                        await authority.delete_policy(policy_id, site_id, species)
-                                        await authority.create_policy(
-                                            site_id, species, "CONSERVE"
-                                        )  # Create Policy
-                                else:
+                    if species in TARGETPOPULATIONS[site_id]:
+                        minimum, maximum = TARGETPOPULATIONS[site_id][species]
+                        logging.debug(
+                            f"{client_uuid} | Site : {site_id} contains {species} : {count}, expected : [{minimum}, {maximum}]"
+                        )
+                        logging.debug(
+                            f"{client_uuid} | Policy @ {site_id} for {species} : {POLICIES[site_id][species]}"
+                        )
+                        if count < minimum:  # Conserve
+                            if POLICIES[site_id][species] != ():  # Policy present.
+                                policy_id, action = POLICIES[site_id][species]
+                                if action == "CULL":
+                                    await authority.delete_policy(policy_id, site_id, species)
                                     await authority.create_policy(
                                         site_id, species, "CONSERVE"
                                     )  # Create Policy
-                            elif count > maximum:  # CULL
-                                if POLICIES[site_id][species] != ():  # Policy present.
-                                    policy_id, action = POLICIES[site_id][species]
-                                    if action == "CONSERVE":  # Wrong policy present : Delete
-                                        await authority.delete_policy(policy_id, site_id, species)
-                                        await authority.create_policy(site_id, species, "CULL")
-                                else:
-                                    await authority.create_policy(site_id, species, "CULL")
-                            else:  # minimum <= count <= maximum:  No Policy required
-                                if POLICIES[site_id][species] != ():  # Policy present.
-                                    policy_id, _ = POLICIES[site_id][species]
+                            else:
+                                await authority.create_policy(
+                                    site_id, species, "CONSERVE"
+                                )  # Create Policy
+                        elif count > maximum:  # CULL
+                            if POLICIES[site_id][species] != ():  # Policy present.
+                                policy_id, action = POLICIES[site_id][species]
+                                if action == "CONSERVE":  # Wrong policy present : Delete
                                     await authority.delete_policy(policy_id, site_id, species)
+                                    await authority.create_policy(site_id, species, "CULL")
+                            else:
+                                await authority.create_policy(site_id, species, "CULL")
+                        else:  # minimum <= count <= maximum:  No Policy required
+                            if POLICIES[site_id][species] != ():  # Policy present.
+                                policy_id, _ = POLICIES[site_id][species]
+                                await authority.delete_policy(policy_id, site_id, species)
 
+                AUTHORITY_AVAILABLE[site_id].set()  # Now available to others
             else:
                 err = f"Illegal message type : {msg_code}"
                 raise ProtocolError(err)
