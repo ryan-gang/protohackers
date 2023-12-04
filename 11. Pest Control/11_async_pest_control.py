@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import struct
 import sys
 import uuid
 from asyncio import StreamReader, StreamWriter
@@ -249,7 +250,7 @@ async def client_handler(stream_reader: StreamReader, stream_writer: StreamWrite
                 err = f"Illegal message type : {msg_code}"
                 raise ProtocolError(err)
             await asyncio.sleep(0)
-        except ProtocolError as err:
+        except (struct.error, ProtocolError) as err:
             logging.error(f"{client_uuid} | {err}")
             error = serializer.serialize_error(Error(str(err)))
             await writer.write(error)

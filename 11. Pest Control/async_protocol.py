@@ -125,6 +125,9 @@ class Parser(object):
         l, data = self.parse_uint32(data)
         proto, data = self.parse_str(data, l)
         version, data = self.parse_uint32(data)
+        assert proto == "pestcontrol", f"Bad protocol: {proto}"
+        assert version == 1, f"Bad version : {version}"
+        assert len(data) == 1, f"Unconsumed data even after parsing : {data}"
 
         return Hello(proto, version)
 
@@ -133,6 +136,7 @@ class Parser(object):
         _, data = self.parse_uint32(data)
         l, data = self.parse_uint32(data)
         error_msg, data = self.parse_str(data, l)
+        assert len(data) == 1, f"Unconsumed data even after parsing : {data}"
 
         return Error(error_msg)
 
@@ -144,6 +148,7 @@ class Parser(object):
     def parse_dial_authority(self, data: bytes):
         _, data = self.parse_uint32(data)
         site, data = self.parse_uint32(data)
+        assert len(data) == 1, f"Unconsumed data even after parsing : {data}"
 
         return DialAuthority(site)
 
@@ -160,6 +165,7 @@ class Parser(object):
             maximum, data = self.parse_uint32(data)
             pop = PopulationTarget(species, minimum, maximum)
             pops.append(pop)
+        assert len(data) == 1, f"Unconsumed data even after parsing : {data}"
 
         return TargetPopulations(site, pops)
 
@@ -175,6 +181,7 @@ class Parser(object):
             act = "CONSERVE"  # Conserve
         else:
             raise ProtocolError("Unknown Action in Policy")
+        assert len(data) == 2, f"Unconsumed data even after parsing : {data}"
 
         return CreatePolicy(species, act)
 
@@ -182,12 +189,16 @@ class Parser(object):
     def parse_delete_policy(self, data: bytes):
         _, data = self.parse_uint32(data)
         policy, data = self.parse_uint32(data)
+        assert len(data) == 1, f"Unconsumed data even after parsing : {data}"
+
         return DeletePolicy(policy)
 
     # POLICYRESULT
     def parse_policy_result(self, data: bytes):
         _, data = self.parse_uint32(data)
         policy, data = self.parse_uint32(data)
+        assert len(data) == 1, f"Unconsumed data even after parsing : {data}"
+
         return PolicyResult(policy)
 
     # SITEVISIT
@@ -202,6 +213,7 @@ class Parser(object):
             count, data = self.parse_uint32(data)
             pop = PopulationActual(species, count)
             pops.append(pop)
+        assert len(data) == 1, f"Unconsumed data even after parsing : {data}"
 
         return SiteVisit(site, pops)
 
@@ -228,7 +240,7 @@ class Serializer(object):
     def serialize_message(self, data: bytearray, msg_code: int) -> bytes:
         length = len(data) + 1 + 4 + 1
         out = (self._serialize_uint8(msg_code)) + (self._serialize_uint32(length)) + data
-        checksum = 256 - (sum(out) % 256)
+        checksum = (256 - (sum(out) % 256)) % 256
         out += self._serialize_uint8(checksum)
         return out
 
