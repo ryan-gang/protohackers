@@ -3,7 +3,7 @@ import logging
 import struct
 import sys
 import uuid
-from asyncio import Event, StreamReader, StreamWriter
+from asyncio import Event, Lock, StreamReader, StreamWriter
 from collections import defaultdict
 
 from async_protocol import Parser, Reader, Serializer, Writer
@@ -12,15 +12,15 @@ from messages import (CreatePolicy, DeletePolicy, DialAuthority, Error, Hello,
                       PolicyResult, SiteVisit, TargetPopulations)
 
 logging.basicConfig(
-    format=("%(asctime)s | %(levelname)s | %(name)s |  [%(filename)s:%(lineno)d] |" " %(message)s"),
+    format=("%(asctime)s | %(levelname)s | %(message)s"),
     datefmt="%Y-%m-%d %H:%M:%S",
-    level="INFO",
+    level="DEBUG",
     handlers=[logging.FileHandler("app.log"), logging.StreamHandler(sys.stdout)],
 )
 IP, PORT = "0.0.0.0", 9090
 UPSTREAM_IP, UPSTREAM_PORT = "pestcontrol.protohackers.com", 20547
 AUTHORITIES: dict[int, "AuthorityServer"] = {}  # {site_id: AuthorityServer}
-AUTHORITY_AVAILABLE: dict[int, Event] = {}  # { site_id : Asyncio.Event }
+AUTHORITY_AVAILABLE: dict[int, Event] = defaultdict(Event)  # { site_id : Asyncio.Event }
 # Once an Authority is available, set the event to False, other clients will have to wait,
 # Then set to True and sleep.
 # Add to list only after connecting & performing handshake.
@@ -31,7 +31,8 @@ POLICIES: dict[int, dict[str, tuple[int, str]]] = defaultdict(lambda: defaultdic
 TARGETPOPULATIONS: dict[int, dict[str, tuple[int, int]]] = defaultdict(
     lambda: defaultdict(tuple[int, int])
 )  # {site_id : {species : (min, max)}}
-
+read_lock = Lock()
+policy_lock = Lock()
 
 class AuthorityServer(object):
     def __init__(self, site_id: int) -> None:
@@ -58,7 +59,9 @@ class AuthorityServer(object):
         logging.debug(f"{self.uuid} | Sent Hello to {self.upstream_peername}")
 
     async def get_hello(self):
-        msg_code, message_bytes = await self.reader.read_message()
+        async with read_lock:
+            msg_code, message_bytes = await self.reader.read_message()
+
         if msg_code != 80 and not self.connected:
             logging.error(f"{self.uuid} | {self.parser.parse_message(bytes(message_bytes))}")
             raise ProtocolError(f"First message has to be Hello. But received : {message_bytes}")
@@ -83,7 +86,9 @@ class AuthorityServer(object):
         self.dialed_in = True
 
     async def fetch_target_populations(self) -> TargetPopulations:
-        msg_code, message_bytes = await self.reader.read_message()
+        async with read_lock:
+            msg_code, message_bytes = await self.reader.read_message()
+
         if msg_code == 84:
             population_target = self.parser.parse_message(bytes(message_bytes))
             assert type(population_target) == TargetPopulations
@@ -122,7 +127,10 @@ class AuthorityServer(object):
         out = CreatePolicy(species, action)
         response = self.serializer.serialize_create_policy(out)
         await self.writer.write(response)
-        msg_code, message_bytes = await self.reader.read_message()
+
+        async with read_lock:
+            msg_code, message_bytes = await self.reader.read_message()
+
         if msg_code == 87:
             policy_result = self.parser.parse_message(bytes(message_bytes))
             assert type(policy_result) == PolicyResult
@@ -146,7 +154,10 @@ class AuthorityServer(object):
         await self.writer.write(response)
         logging.debug(f"{self.uuid} | Deleted policy ID {policy_id} for {site_id}, {species}")
         POLICIES[site_id][species] = ()  # type: ignore
-        msg_code, message_bytes = await self.reader.read_message()
+
+        async with read_lock:
+            msg_code, message_bytes = await self.reader.read_message()
+
         if msg_code == 82:
             _ = self.parser.parse_message(bytes(message_bytes))
         else:
@@ -220,43 +231,44 @@ async def client_handler(stream_reader: StreamReader, stream_writer: StreamWrite
                     count = all_species_data[species]
                     if species in TARGETPOPULATIONS[site_id]:
                         minimum, maximum = TARGETPOPULATIONS[site_id][species]
-                        logging.debug(
-                            f"{client_uuid} | Site : {site_id} contains {species} : {count}, expected : [{minimum}, {maximum}]"
-                        )
-                        logging.debug(
-                            f"{client_uuid} | Policy @ {site_id} for {species} : {POLICIES[site_id][species]}"
-                        )
-                        if count < minimum:  # Conserve
-                            if POLICIES[site_id][species] != ():  # Policy present.
-                                policy_id, action = POLICIES[site_id][species]
-                                if action == "CULL":
-                                    await authority.delete_policy(policy_id, site_id, species)
+                        # logging.debug(
+                        #     f"{client_uuid} | Site : {site_id} contains {species} : {count}, expected : [{minimum}, {maximum}]"
+                        # )
+                        # logging.debug(
+                        #     f"{client_uuid} | Policy @ {site_id} for {species} : {POLICIES[site_id][species]}"
+                        # )
+                        async with policy_lock:
+                            if count < minimum:  # Conserve
+                                if POLICIES[site_id][species] != ():  # Policy present.
+                                    policy_id, action = POLICIES[site_id][species]
+                                    if action == "CULL":
+                                        await authority.delete_policy(policy_id, site_id, species)
+                                        await authority.create_policy(
+                                            site_id, species, "CONSERVE"
+                                        )  # Create Policy
+                                else:
                                     await authority.create_policy(
                                         site_id, species, "CONSERVE"
                                     )  # Create Policy
-                            else:
-                                await authority.create_policy(
-                                    site_id, species, "CONSERVE"
-                                )  # Create Policy
-                        elif count > maximum:  # CULL
-                            if POLICIES[site_id][species] != ():  # Policy present.
-                                policy_id, action = POLICIES[site_id][species]
-                                if action == "CONSERVE":  # Wrong policy present : Delete
-                                    await authority.delete_policy(policy_id, site_id, species)
+                            elif count > maximum:  # CULL
+                                if POLICIES[site_id][species] != ():  # Policy present.
+                                    policy_id, action = POLICIES[site_id][species]
+                                    if action == "CONSERVE":  # Wrong policy present : Delete
+                                        await authority.delete_policy(policy_id, site_id, species)
+                                        await authority.create_policy(site_id, species, "CULL")
+                                else:
                                     await authority.create_policy(site_id, species, "CULL")
-                            else:
-                                await authority.create_policy(site_id, species, "CULL")
-                        else:  # minimum <= count <= maximum:  No Policy required
-                            if POLICIES[site_id][species] != ():  # Policy present.
-                                policy_id, _ = POLICIES[site_id][species]
-                                await authority.delete_policy(policy_id, site_id, species)
+                            else:  # minimum <= count <= maximum:  No Policy required
+                                if POLICIES[site_id][species] != ():  # Policy present.
+                                    policy_id, _ = POLICIES[site_id][species]
+                                    await authority.delete_policy(policy_id, site_id, species)
 
                 AUTHORITY_AVAILABLE[site_id].set()  # Now available to others
             else:
                 err = f"Illegal message type : {msg_code}"
                 raise ProtocolError(err)
-            await asyncio.sleep(0)
-        except (struct.error, ProtocolError) as err:
+            # await asyncio.sleep(0)
+        except (struct.error, ProtocolError, AssertionError) as err:
             logging.error(f"{client_uuid} | {err}")
             error = serializer.serialize_error(Error(str(err)))
             await writer.write(error)
@@ -269,6 +281,8 @@ async def client_handler(stream_reader: StreamReader, stream_writer: StreamWrite
         except asyncio.exceptions.IncompleteReadError:
             logging.error(f"{client_uuid} | Client disconnected.")
             break
+        except Exception as err:
+            logging.error(err)
     return
 
 

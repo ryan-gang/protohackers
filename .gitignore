@@ -1,8 +1,10 @@
 .history/
 **/__pycache__/
-tmp.*
 .vscode/
-*.md
+.idea/
+
 *.log
-7.*
-test*.py
+
+tmp.*
+impl-*.py
+test_*.py

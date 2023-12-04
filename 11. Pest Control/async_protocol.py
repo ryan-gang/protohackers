@@ -10,12 +10,9 @@ from messages import (OK, CreatePolicy, DeletePolicy, DialAuthority, Error,
                       SiteVisit, TargetPopulations)
 
 logging.basicConfig(
-    format=(
-        "%(asctime)s | %(levelname)s | %(name)s |  [%(filename)s:%(lineno)d] | %(threadName)-10s |"
-        " %(message)s"
-    ),
+    format=("%(asctime)s | %(levelname)s | %(message)s"),
     datefmt="%Y-%m-%d %H:%M:%S",
-    level="INFO",
+    level="DEBUG",
     handlers=[logging.FileHandler("app.log"), logging.StreamHandler(sys.stdout)],
 )
 
